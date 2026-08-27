@@ -6,7 +6,9 @@
  * halo, and a speaking flag so the UI knows who currently has the floor.
  */
 
-const CAPTURE_RATE = 16000; // Gemini expects 16 kHz in
+// Exported: the Live API needs this rate declared in the audio MIME type,
+// and a mismatch there produces garbled audio rather than an error.
+export const CAPTURE_RATE = 16000; // Gemini expects 16 kHz in
 const PLAYBACK_RATE = 24000; // Gemini sends 24 kHz out
 
 function rms(float32) {

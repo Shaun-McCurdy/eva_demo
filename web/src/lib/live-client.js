@@ -2,11 +2,13 @@
  * Browser client for the EVA live session.
  *
  * Adapted from Google's GeminiLiveAPI sample, with one deliberate change: the
- * browser no longer builds or sends the Vertex `setup` frame. It sends a single
+ * browser no longer builds or sends the `setup` frame. It sends a single
  * line naming an agent, and the server builds setup from its own copy of that
  * agent's instructions. Nothing about the agent's behaviour is client-controlled,
  * so a public demo URL cannot be repurposed.
  */
+
+import { CAPTURE_RATE } from "./media.js";
 
 export const Msg = {
   READY: "READY",
@@ -136,10 +138,15 @@ export class EvaLiveClient {
     }
   }
 
+  // `media_chunks` was the old shape and is now rejected outright with a 1007
+  // close: "realtime_input.media_chunks is deprecated. Use audio, video, or
+  // text instead." The rate has to be declared in the MIME type -- the API
+  // assumes 16 kHz if it is absent, so a silent mismatch would mean garbled
+  // audio rather than an error.
   sendAudioChunk(base64Pcm) {
     this.#send({
       realtime_input: {
-        media_chunks: [{ mime_type: "audio/pcm", data: base64Pcm }],
+        audio: { mime_type: `audio/pcm;rate=${CAPTURE_RATE}`, data: base64Pcm },
       },
     });
   }
@@ -147,7 +154,7 @@ export class EvaLiveClient {
   sendImageChunk(base64Jpeg) {
     this.#send({
       realtime_input: {
-        media_chunks: [{ mime_type: "image/jpeg", data: base64Jpeg }],
+        video: { mime_type: "image/jpeg", data: base64Jpeg },
       },
     });
   }

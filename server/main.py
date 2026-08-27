@@ -345,6 +345,18 @@ async def live_session(ws: WebSocket):
                 for task in pending:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
+
+                # asyncio.wait does not raise a finished task's exception, it
+                # just hands the task back. Without re-raising here, an upstream
+                # close dies unretrieved inside the pump task: the handlers below
+                # never run, the browser is told nothing, and the only trace is
+                # asyncio's own "Task exception was never retrieved" dump.
+                for task in done:
+                    if task.cancelled():
+                        continue
+                    exc = task.exception()
+                    if exc is not None:
+                        raise exc
         except (ConnectionClosedOK, WebSocketDisconnect):
             pass
         except ConnectionClosed as exc:
