@@ -17,11 +17,11 @@ def _resolve_project() -> tuple[str, str]:
     """Find the GCP project id, and report where it came from.
 
     Cloud Run does *not* inject GOOGLE_CLOUD_PROJECT into the container the way
-    App Engine and Cloud Functions do. A deploy that omits
-    `--set-env-vars GOOGLE_CLOUD_PROJECT=...` therefore starts cleanly and then
-    fails every live session with "Server is missing GOOGLE_CLOUD_PROJECT",
-    which points at the wrong thing: the credentials are fine, only the name of
-    the project is absent.
+    App Engine and Cloud Functions do, so a deploy that omits
+    `--set-env-vars GOOGLE_CLOUD_PROJECT=...` leaves it empty. Since the move to
+    the Gemini Developer API only Firestore needs this -- the model calls no
+    longer touch Google Cloud at all -- but an unset project still silently
+    breaks the studio.
 
     Application Default Credentials already know the answer -- from the
     metadata server on Cloud Run, and from the gcloud ADC file or a
@@ -47,6 +47,11 @@ def _resolve_project() -> tuple[str, str]:
     return (project, "ADC") if project else ("", "unset")
 
 
+# The Developer API is global-routed: one host, no region prefix, unlike
+# Vertex's {region}-aiplatform.googleapis.com.
+API_HOST = "generativelanguage.googleapis.com"
+
+
 def _bool(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -62,33 +67,42 @@ def _int(name: str, default: int) -> int:
 
 
 class Settings:
-    # ---- Google Cloud / Vertex AI -------------------------------------
-    # PROJECT_ID is required. On Cloud Run the attached service account
-    # supplies credentials automatically via ADC -- no key file needed.
-    # PROJECT_SOURCE records which mechanism supplied the id, so a
-    # misconfigured deploy is one /healthz away from being obvious.
-    PROJECT_ID, PROJECT_SOURCE = _resolve_project()
-    LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1").strip()
-    MODEL = os.environ.get(
-        "GEMINI_MODEL", "gemini-live-2.5-flash-native-audio"
-    ).strip()
+    # ---- Gemini Developer API -----------------------------------------
+    # The Live API authenticates with an API key in the query string. There is
+    # no header form, which makes the connect URL itself a secret -- hence the
+    # split between service_url (safe to log) and authenticated_url (not).
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+    MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-live-preview").strip()
 
-    @property
-    def api_host(self) -> str:
-        return f"{self.LOCATION}-aiplatform.googleapis.com"
+    # ---- Google Cloud --------------------------------------------------
+    # Firestore is the only thing left that needs a project; the model calls do
+    # not touch GCP. PROJECT_SOURCE records which mechanism supplied the id, so
+    # a misconfigured deploy is one /healthz away from being obvious.
+    PROJECT_ID, PROJECT_SOURCE = _resolve_project()
 
     @property
     def service_url(self) -> str:
+        """Upstream endpoint with no credential in it. Safe to log."""
         return (
-            f"wss://{self.api_host}/ws/"
-            "google.cloud.aiplatform.v1beta1.LlmBidiService/BidiGenerateContent"
+            f"wss://{API_HOST}/ws/"
+            "google.ai.generativelanguage.v1beta.GenerativeService"
+            ".BidiGenerateContent"
         )
 
+    def authenticated_url(self) -> str:
+        """service_url carrying the API key. Never log this -- redact() it."""
+        return f"{self.service_url}?key={self.GEMINI_API_KEY}"
+
+    def redact(self, text: str) -> str:
+        """Blank the API key out of anything bound for a log line."""
+        if self.GEMINI_API_KEY:
+            return text.replace(self.GEMINI_API_KEY, "***")
+        return text
+
     def model_uri(self, model: str | None = None) -> str:
-        return (
-            f"projects/{self.PROJECT_ID}/locations/{self.LOCATION}"
-            f"/publishers/google/models/{model or self.MODEL}"
-        )
+        # The Developer API names models `models/<id>`. The long
+        # projects/.../locations/.../publishers/... form is Vertex-only.
+        return f"models/{model or self.MODEL}"
 
     # ---- Agent storage ------------------------------------------------
     # "file"      -> JSON on local disk (dev; ephemeral on Cloud Run)
@@ -133,11 +147,17 @@ class Settings:
 
     def validate(self) -> list[str]:
         problems = []
-        if not self.PROJECT_ID:
+        if not self.GEMINI_API_KEY:
             problems.append(
-                "No Google Cloud project could be determined -- the Vertex model URI "
-                "cannot be built. Set GOOGLE_CLOUD_PROJECT (Cloud Run does not set it "
-                "for you) or attach credentials that name a project."
+                "GEMINI_API_KEY is not set -- the Live API cannot authenticate, so "
+                "every session will be refused."
+            )
+        if self.STORE_BACKEND == "firestore" and not self.PROJECT_ID:
+            problems.append(
+                "STORE_BACKEND=firestore but no Google Cloud project could be "
+                "determined, so Firestore cannot be reached. Set "
+                "GOOGLE_CLOUD_PROJECT (Cloud Run does not set it for you) or "
+                "attach credentials that name a project."
             )
         if not self.STUDIO_PASSWORD_HASH and not self.STUDIO_PASSWORD:
             problems.append(

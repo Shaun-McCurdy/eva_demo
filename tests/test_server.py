@@ -131,15 +131,16 @@ registry, _ = fresh_registry()
 banking = registry.get("banking")
 setup = live_proxy.build_setup_message(banking)["setup"]
 
-check("model URI targets the configured project",
-      setup["model"] == "projects/test-project/locations/us-central1"
-                        "/publishers/google/models/gemini-live-2.5-flash-native-audio",
+check("model URI uses the Developer API's short form",
+      setup["model"] == f"models/{live_proxy.settings.MODEL}",
       setup["model"])
 check("voice comes from the agent config",
       setup["generation_config"]["speech_config"]["voice_config"]
            ["prebuilt_voice_config"]["voice_name"] == "Charon")
-check("affective dialog is on",
-      setup["generation_config"]["enable_affective_dialog"] is True)
+check("affective dialog is not sent (unsupported on 3.1 Flash Live)",
+      "enable_affective_dialog" not in setup["generation_config"])
+check("proactivity is not sent (unsupported on 3.1 Flash Live)",
+      "proactivity" not in setup)
 check("both transcriptions are requested",
       "input_audio_transcription" in setup and "output_audio_transcription" in setup)
 
@@ -296,9 +297,28 @@ check("garbage token is rejected", security.read_session("garbage") is None)
 
 
 # ---------------------------------------------------------------------------
-section("Origin checks")
+section("API key never reaches a log line")
 
 from settings import settings  # noqa: E402
+
+_real_key = settings.GEMINI_API_KEY
+settings.GEMINI_API_KEY = "AIza-test-key-do-not-use"
+try:
+    check("service_url carries no credential",
+          settings.GEMINI_API_KEY not in settings.service_url,
+          settings.service_url)
+    check("authenticated_url does carry the key",
+          settings.GEMINI_API_KEY in settings.authenticated_url())
+    check("redact removes the key from a connect URL",
+          settings.GEMINI_API_KEY not in settings.redact(settings.authenticated_url()))
+    check("redact leaves unrelated text alone",
+          settings.redact("upstream closed code=1007") == "upstream closed code=1007")
+finally:
+    settings.GEMINI_API_KEY = _real_key
+
+
+# ---------------------------------------------------------------------------
+section("Origin checks")
 
 settings.ALLOWED_ORIGINS = []
 check("no allowlist configured means any origin is allowed",

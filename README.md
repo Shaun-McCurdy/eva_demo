@@ -19,7 +19,7 @@ their own sub-URL.
 | `/` | Landing page and scenario picker |
 | `/a/:slug` | The conversation stage for one agent |
 | `/studio` | Password-gated console for sales engineers |
-| `/ws/live` | The hardened WebSocket proxy to Vertex AI |
+| `/ws/live` | The hardened WebSocket proxy to the Gemini Live API |
 | `/api/*` | Public agent metadata + authenticated studio API |
 
 Five built-in agents ship with it: **concierge** (Enghouse product Q&A),
@@ -28,22 +28,35 @@ goal, instructions, voice and accent colour.
 
 ---
 
-## Authentication is Vertex AI, not an API key
+## Authentication is an API key, and it never leaves the server
 
-Worth stating plainly, because it is the most common wrong assumption about this
-codebase. The upstream sample — and this app — talk to **Vertex AI**, not the
-Gemini Developer API. There is no `GEMINI_API_KEY`. The server mints a Google
-Cloud access token from Application Default Credentials and opens the upstream
-socket with it:
+This app talks to the **Gemini Developer API**, not Vertex AI. It used to be the
+other way round; the move happened because `gemini-3.1-flash-live-preview` is
+served here and has no documented Vertex equivalent.
 
 ```
-wss://{LOCATION}-aiplatform.googleapis.com/ws/...LlmBidiService/BidiGenerateContent
-model: projects/{PROJECT_ID}/locations/{LOCATION}/publishers/google/models/{MODEL}
+wss://generativelanguage.googleapis.com/ws/...GenerativeService.BidiGenerateContent?key={GEMINI_API_KEY}
+model: models/{MODEL}
 ```
 
-So you need a GCP project with the Vertex AI API enabled, and credentials:
-`gcloud auth application-default login` locally, an attached service account on
-Cloud Run. No key file needs to exist anywhere.
+Two consequences worth knowing.
+
+**The credential is in the query string.** There is no header form. That makes
+the connect URL itself a secret, which is why `settings.service_url` deliberately
+excludes the key and `settings.authenticated_url()` — used only at the moment of
+connecting — includes it. A logging formatter in `main.py` redacts the key from
+every line it emits, tracebacks included. There is a test for this, because a
+leak here would be silent.
+
+**It is long-lived and unscoped.** Unlike the Vertex service-account token this
+replaced, an API key carries no IAM roles, no VPC-SC, and no expiry. It belongs
+in Secret Manager and nowhere else. Restrict it in AI Studio.
+
+The browser never sees it either way — the proxy holds it server-side, which is
+the same property the Vertex version had.
+
+Google Cloud has not disappeared entirely: `STORE_BACKEND=firestore` still needs
+a project and Application Default Credentials. The model calls no longer do.
 
 ---
 
@@ -53,9 +66,9 @@ The sample proxy is written for `localhost`. Four things had to change before it
 could have a public URL.
 
 **1. The browser no longer builds the session.**
-Upstream, the React app constructs the entire Vertex `setup` frame — model,
+Upstream, the React app constructs the entire `setup` frame — model,
 system instruction, temperature, tools — and the proxy forwards it. On a public
-site that means anyone who opens devtools can point your Vertex project at any
+site that means anyone who opens devtools can point your API key at any
 prompt they like. Here, the browser sends one line:
 
 ```json
@@ -66,7 +79,7 @@ The server looks that agent up in its own store and builds `setup` itself from
 `BASE_GUARDRAILS + goal + instructions`. Nothing about the agent's behaviour is
 client-controlled.
 
-**2. The proxy no longer trusts the client for the upstream address or token.**
+**2. The proxy no longer trusts the client for the upstream address or credential.**
 Upstream accepts `service_url` and `bearer_token` in the client's first message.
 Both are server constants here.
 
@@ -88,16 +101,17 @@ what drives the avatar.
 
 ## Running it locally
 
-You need Node 20+, Python 3.11+, and a GCP project with Vertex AI enabled.
+You need Node 20+, Python 3.11+, an API key from
+[AI Studio](https://aistudio.google.com/apikey), and — only if you want the
+Firestore store — a GCP project.
 
 ```bash
-# 1. Credentials
-gcloud auth application-default login
-gcloud services enable aiplatform.googleapis.com
-
-# 2. Configure
+# 1. Configure
 cp .env.example .env
-$EDITOR .env          # set GOOGLE_CLOUD_PROJECT, STUDIO_PASSWORD, COOKIE_SECURE=false
+$EDITOR .env          # set GEMINI_API_KEY, STUDIO_PASSWORD, COOKIE_SECURE=false
+
+# 2. Only if you want the Firestore store (STORE_BACKEND=file needs none of this)
+gcloud auth application-default login
 
 # 3. Back end
 python -m venv .venv && source .venv/bin/activate
@@ -155,7 +169,7 @@ app reaches into it.
 ```
 server/
   main.py         FastAPI app: static site, public API, studio API, /ws/live
-  live_proxy.py   Frame filtering, setup construction, token minting, rate limits
+  live_proxy.py   Frame filtering, setup construction, rate limits
   agents.py       Registry: built-ins + variants, validation, public/full views
   personas.py     BASE_GUARDRAILS and the five shipped agents
   store.py        JSON-file and Firestore backends

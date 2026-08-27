@@ -27,7 +27,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from websockets.asyncio.client import connect as ws_connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 
 import security
 from agents import AgentError, AgentRegistry, VOICES, full_view, public_view
@@ -40,16 +40,42 @@ from live_proxy import (
     opening_turn,
     origin_allowed,
     sanitize_client_frame,
-    token_provider,
 )
 from settings import settings
 from store import build_store
 
-logging.basicConfig(
-    level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+_LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
+
+
+class _RedactingFormatter(logging.Formatter):
+    """Keeps the API key out of the logs.
+
+    The Live API takes its credential in the query string, so any exception
+    carrying the connect URL would otherwise print the key straight into Cloud
+    Run logs. Redacting at format time covers tracebacks as well, which a
+    logging.Filter cannot reach.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        return settings.redact(super().format(record))
+
+
+logging.basicConfig(level=logging.DEBUG if settings.DEBUG else logging.INFO)
+for _handler in logging.getLogger().handlers:
+    _handler.setFormatter(_RedactingFormatter(_LOG_FORMAT))
 log = logging.getLogger("eva")
+
+
+def _close_info(exc: ConnectionClosed) -> tuple[int | None, str]:
+    """Read the close code and reason across websockets versions.
+
+    The library moved these from the exception onto a received Close frame, so
+    try the frame first and fall back to the older attributes.
+    """
+    rcvd = getattr(exc, "rcvd", None)
+    if rcvd is not None:
+        return getattr(rcvd, "code", None), getattr(rcvd, "reason", "") or ""
+    return getattr(exc, "code", None), getattr(exc, "reason", "") or ""
 
 registry = AgentRegistry(build_store())
 
@@ -59,11 +85,11 @@ async def lifespan(app: FastAPI):
     for problem in settings.validate():
         log.warning("CONFIG: %s", problem)
     log.info(
-        "EVA demo up | project=%s (via %s) location=%s model=%s store=%s",
+        "EVA demo up | model=%s key=%s project=%s (via %s) store=%s",
+        settings.MODEL,
+        "set" if settings.GEMINI_API_KEY else "MISSING",
         settings.PROJECT_ID or "(unset)",
         settings.PROJECT_SOURCE,
-        settings.LOCATION,
-        settings.MODEL,
         settings.STORE_BACKEND,
     )
     yield
@@ -90,11 +116,13 @@ async def security_headers(request: Request, call_next):
 
 @app.get("/healthz")
 async def healthz():
-    # projectSource names where the project id came from -- an env var, ADC, or
-    # nowhere. It is the one thing you want to see when a deploy comes up with
-    # no project, and it exposes nothing an anonymous caller could use.
+    # Whether each dependency is configured, never what it is configured to.
+    # apiKey gates every live session; project and projectSource only matter to
+    # Firestore now, and projectSource is the one thing you want to see when a
+    # deploy comes up with no project.
     return {
         "ok": True,
+        "apiKey": bool(settings.GEMINI_API_KEY),
         "project": bool(settings.PROJECT_ID),
         "projectSource": settings.PROJECT_SOURCE,
     }
@@ -277,35 +305,20 @@ async def live_session(ws: WebSocket):
             await ws.close(code=CLOSE_POLICY)
             return
 
-        if not settings.PROJECT_ID:
+        if not settings.GEMINI_API_KEY:
             await ws.send_text(
-                json.dumps(
-                    {"evaError": "Server is not configured with a Google Cloud project."}
-                )
-            )
-            await ws.close(code=CLOSE_INTERNAL)
-            return
-
-        try:
-            token = await token_provider.token()
-        except Exception as exc:  # noqa: BLE001 - surfaced as a clean close
-            log.exception("token mint failed")
-            await ws.send_text(
-                json.dumps({"evaError": "Server could not authenticate to Vertex AI."})
+                json.dumps({"evaError": "Server is not configured with an API key."})
             )
             await ws.close(code=CLOSE_INTERNAL)
             return
 
         ssl_context = ssl.create_default_context(cafile=certifi.where())
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        }
+        headers = {"Content-Type": "application/json"}
 
         log.info("session start agent=%s ip=%s", slug, ip)
         try:
             async with ws_connect(
-                settings.service_url,
+                settings.authenticated_url(),
                 additional_headers=headers,
                 ssl=ssl_context,
                 max_size=None,
@@ -332,13 +345,31 @@ async def live_session(ws: WebSocket):
                 for task in pending:
                     task.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
-        except (ConnectionClosed, WebSocketDisconnect):
+        except (ConnectionClosedOK, WebSocketDisconnect):
             pass
-        except Exception:  # noqa: BLE001
-            log.exception("upstream failure")
+        except ConnectionClosed as exc:
+            # Google closes the socket with a code and a reason when it refuses
+            # the setup frame -- an unsupported field, an unknown model, a dead
+            # key. Swallowing that made every such failure look like an agent
+            # that simply would not talk. Log the reason; tell the page only the
+            # code, since this is a public site and the reason is internal.
+            code, reason = _close_info(exc)
+            log.warning(
+                "upstream closed agent=%s code=%s reason=%s", slug, code, reason
+            )
             try:
                 await ws.send_text(
-                    json.dumps({"evaError": "Lost the connection to Vertex AI."})
+                    json.dumps(
+                        {"evaError": f"The session ended unexpectedly (code {code})."}
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception:  # noqa: BLE001
+            log.exception("upstream failure agent=%s", slug)
+            try:
+                await ws.send_text(
+                    json.dumps({"evaError": "Lost the connection to the Live API."})
                 )
             except Exception:  # noqa: BLE001
                 pass

@@ -1,4 +1,4 @@
-"""Hardened WebSocket proxy between the browser and Vertex AI Live.
+"""Hardened WebSocket proxy between the browser and the Gemini Live API.
 
 Differences from the sample proxy this is derived from, all of them the
 difference between "runs on my laptop" and "has a public URL":
@@ -6,15 +6,16 @@ difference between "runs on my laptop" and "has a public URL":
 1. The browser never sends the setup message. It sends one line naming an agent;
    the server looks that agent up and builds the setup itself. A visitor cannot
    change the system instruction, the model, the temperature, or the tools.
-2. The browser never sends a service URL or a bearer token. Both are server
+2. The browser never sends a service URL or a credential. Both are server
    constants. The sample accepted both from the client, which turns the proxy
    into an open relay for any host the client names.
 3. Client frames are filtered to an allowlist of message types and a size cap,
-   so nothing unexpected reaches Vertex on the project's credentials.
+   so nothing unexpected reaches Google on the server's API key.
 4. Sessions are capped by duration, per-IP concurrency, per-IP rate, and global
-   concurrency, so one visitor cannot drain the Vertex quota.
-5. The access token is minted from ADC on the server and refreshed in a worker
-   thread, never exposed to the page.
+   concurrency, so one visitor cannot drain the API quota.
+5. The API key stays server-side and is never exposed to the page. It travels in
+   the upstream query string, so it must never reach a log line either --
+   settings.redact() exists for that.
 """
 
 from __future__ import annotations
@@ -22,20 +23,14 @@ from __future__ import annotations
 import asyncio
 import collections
 import json
-import ssl
 import time
 from typing import Any
-
-import certifi
-import google.auth
-import websockets
-from google.auth.transport.requests import Request as GoogleAuthRequest
 
 from agents import system_instruction_for
 from personas import OPENING_TRIGGER
 from settings import settings
 
-# Only these top-level keys are forwarded from browser to Vertex.
+# Only these top-level keys are forwarded from browser to Google.
 ALLOWED_CLIENT_KEYS = {
     "realtime_input",
     "realtimeInput",
@@ -48,34 +43,6 @@ ALLOWED_CLIENT_KEYS = {
 CLOSE_POLICY = 1008
 CLOSE_TRY_AGAIN = 1013
 CLOSE_INTERNAL = 1011
-
-
-# --------------------------------------------------------------------------
-# Credentials
-# --------------------------------------------------------------------------
-
-class TokenProvider:
-    """Caches ADC credentials and refreshes them off the event loop."""
-
-    def __init__(self):
-        self._creds = None
-        self._lock = asyncio.Lock()
-
-    def _blocking_token(self) -> str:
-        if self._creds is None:
-            self._creds, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-        if not self._creds.valid:
-            self._creds.refresh(GoogleAuthRequest())
-        return self._creds.token
-
-    async def token(self) -> str:
-        async with self._lock:
-            return await asyncio.to_thread(self._blocking_token)
-
-
-token_provider = TokenProvider()
 
 
 # --------------------------------------------------------------------------
@@ -134,7 +101,7 @@ limiter = SessionLimiter()
 # --------------------------------------------------------------------------
 
 def build_setup_message(agent: dict[str, Any]) -> dict[str, Any]:
-    """Assemble the Vertex setup frame from server-held agent config."""
+    """Assemble the Live API setup frame from server-held agent config."""
     setup: dict[str, Any] = {
         "model": settings.model_uri(),
         "generation_config": {
@@ -147,14 +114,10 @@ def build_setup_message(agent: dict[str, Any]) -> dict[str, Any]:
                     }
                 }
             },
-            # Lets the model hear tone and respond to it, which is most of why
-            # this sounds different from a classic IVR in a demo.
-            "enable_affective_dialog": True,
         },
         "system_instruction": {
             "parts": [{"text": system_instruction_for(agent)}]
         },
-        "proactivity": {"proactive_audio": True},
         "input_audio_transcription": {},
         "output_audio_transcription": {},
         "realtime_input_config": {
