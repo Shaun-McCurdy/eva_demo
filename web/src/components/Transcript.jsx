@@ -5,10 +5,22 @@ const LABELS = { agent: "EVA", visitor: "You", system: "" };
 export default function Transcript({ turns, agentName, onSend, canSend }) {
   const bodyRef = useRef(null);
   const inputRef = useRef(null);
+  const pinnedToBottom = useRef(true);
+
+  // Follow the conversation, but only while the reader is actually at the
+  // bottom. Transcription streams in a few chunks a second, so scrolling
+  // unconditionally would yank them back down the instant they scroll up to
+  // re-read something.
+  const trackScroll = () => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    pinnedToBottom.current = fromBottom < 40;
+  };
 
   useEffect(() => {
     const el = bodyRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && pinnedToBottom.current) el.scrollTop = el.scrollHeight;
   }, [turns]);
 
   const submit = (event) => {
@@ -26,7 +38,12 @@ export default function Transcript({ turns, agentName, onSend, canSend }) {
         <span>{turns.filter((t) => t.role !== "system").length} turns</span>
       </div>
 
-      <div className="transcript-body" ref={bodyRef} aria-live="polite">
+      <div
+        className="transcript-body"
+        ref={bodyRef}
+        onScroll={trackScroll}
+        aria-live="polite"
+      >
         {turns.length === 0 ? (
           <p className="transcript-empty">
             Everything {agentName} hears and says appears here, live.
