@@ -24,45 +24,62 @@ export const Msg = {
   CLOSED: "CLOSED",
 };
 
+/**
+ * Returns every message a frame carries, in order.
+ *
+ * This used to return a single message and bail on the first match, which lost
+ * data: one `serverContent` frame routinely carries `outputTranscription` *and*
+ * `modelTurn.parts` audio together, and the transcription was checked first, so
+ * the audio in that frame was silently discarded. Heard as the voice cutting
+ * out mid-sentence. `turnComplete` arrives bundled the same way and was checked
+ * last, so it was rarely seen at all.
+ */
 function parseServerFrame(data) {
-  if (data?.evaReady) return { type: Msg.READY, data: data.evaReady };
-  if (data?.evaError) return { type: Msg.ERROR, data: data.evaError };
+  if (data?.evaReady) return [{ type: Msg.READY, data: data.evaReady }];
+  if (data?.evaError) return [{ type: Msg.ERROR, data: data.evaError }];
 
-  const parts = data?.serverContent?.modelTurn?.parts;
+  const out = [];
+  const content = data?.serverContent;
 
   if (data?.setupComplete !== undefined) {
-    return { type: Msg.SETUP_COMPLETE, data: null };
+    out.push({ type: Msg.SETUP_COMPLETE, data: null });
   }
-  if (data?.serverContent?.interrupted) {
-    return { type: Msg.INTERRUPTED, data: null };
+  if (content?.interrupted) {
+    out.push({ type: Msg.INTERRUPTED, data: null });
   }
-  if (data?.serverContent?.inputTranscription) {
-    const t = data.serverContent.inputTranscription;
-    return {
+  if (content?.inputTranscription) {
+    const t = content.inputTranscription;
+    out.push({
       type: Msg.INPUT_TRANSCRIPTION,
       data: { text: t.text || "", finished: !!t.finished },
-    };
+    });
   }
-  if (data?.serverContent?.outputTranscription) {
-    const t = data.serverContent.outputTranscription;
-    return {
+  if (content?.outputTranscription) {
+    const t = content.outputTranscription;
+    out.push({
       type: Msg.OUTPUT_TRANSCRIPTION,
       data: { text: t.text || "", finished: !!t.finished },
-    };
+    });
   }
   if (data?.toolCall) {
-    return { type: Msg.TOOL_CALL, data: data.toolCall };
+    out.push({ type: Msg.TOOL_CALL, data: data.toolCall });
   }
-  if (parts?.length && parts[0].text) {
-    return { type: Msg.TEXT, data: parts[0].text };
+
+  // Every part, not just the first: a frame can carry several, and dropping
+  // the tail is heard as clipped speech.
+  for (const part of content?.modelTurn?.parts || []) {
+    if (part.text) out.push({ type: Msg.TEXT, data: part.text });
+    if (part.inlineData?.data) {
+      out.push({ type: Msg.AUDIO, data: part.inlineData.data });
+    }
   }
-  if (parts?.length && parts[0].inlineData) {
-    return { type: Msg.AUDIO, data: parts[0].inlineData.data };
+
+  // Last, so the audio of a turn is played before the turn is sealed.
+  if (content?.turnComplete) {
+    out.push({ type: Msg.TURN_COMPLETE, data: null });
   }
-  if (data?.serverContent?.turnComplete) {
-    return { type: Msg.TURN_COMPLETE, data: null };
-  }
-  return null;
+
+  return out;
 }
 
 function socketUrl() {
@@ -99,18 +116,17 @@ export class EvaLiveClient {
         } catch {
           return;
         }
-        const message = parseServerFrame(payload);
-        if (!message) return;
-
-        if (!settled && message.type === Msg.READY) {
-          settled = true;
-          resolve(message.data);
+        for (const message of parseServerFrame(payload)) {
+          if (!settled && message.type === Msg.READY) {
+            settled = true;
+            resolve(message.data);
+          }
+          if (!settled && message.type === Msg.ERROR) {
+            settled = true;
+            reject(new Error(message.data));
+          }
+          this.onMessage(message);
         }
-        if (!settled && message.type === Msg.ERROR) {
-          settled = true;
-          reject(new Error(message.data));
-        }
-        this.onMessage(message);
       };
 
       this.socket.onerror = () => {

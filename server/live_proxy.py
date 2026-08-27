@@ -120,15 +120,12 @@ def build_setup_message(agent: dict[str, Any]) -> dict[str, Any]:
         },
         "input_audio_transcription": {},
         "output_audio_transcription": {},
-        "realtime_input_config": {
-            "automatic_activity_detection": {
-                "disabled": False,
-                "silence_duration_ms": 700,
-                "prefix_padding_ms": 300,
-                "end_of_speech_sensitivity": "END_SENSITIVITY_UNSPECIFIED",
-                "start_of_speech_sensitivity": "START_SENSITIVITY_UNSPECIFIED",
-            }
-        },
+        # No realtime_input_config: automatic voice activity detection is on by
+        # default, and sending the block is optional. The previous config named
+        # START_SENSITIVITY_UNSPECIFIED / END_SENSITIVITY_UNSPECIFIED, which are
+        # not among the values Google documents, and carried silence/padding
+        # timings tuned for the 2.5 native-audio model. Defaults are the right
+        # starting point; re-tune deliberately if the turn-taking feels wrong.
     }
     return {"setup": setup}
 

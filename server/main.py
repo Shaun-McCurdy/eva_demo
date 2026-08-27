@@ -244,7 +244,7 @@ def _client_ip(ws: WebSocket) -> str:
     return ws.client.host if ws.client else "unknown"
 
 
-async def _pump_client_to_vertex(ws: WebSocket, upstream) -> None:
+async def _pump_client_to_model(ws: WebSocket, upstream, stats: dict) -> None:
     while True:
         message = await ws.receive()
         if message.get("type") == "websocket.disconnect":
@@ -255,16 +255,22 @@ async def _pump_client_to_vertex(ws: WebSocket, upstream) -> None:
             continue
         safe = sanitize_client_frame(raw)
         if safe is None:
-            log.debug("dropped client frame")
+            # Counted rather than logged per frame: at 4 audio chunks a second a
+            # per-frame line would bury everything else, but a session that
+            # forwards zero frames is the single most useful thing to know when
+            # the agent cannot hear the visitor.
+            stats["dropped"] += 1
             continue
+        stats["sent"] += 1
         await upstream.send(safe)
 
 
-async def _pump_vertex_to_client(ws: WebSocket, upstream) -> None:
+async def _pump_model_to_client(ws: WebSocket, upstream, stats: dict) -> None:
     greeted = False
     async for raw in upstream:
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8", "replace")
+        stats["received"] += 1
         await ws.send_text(raw)
         if not greeted:
             try:
@@ -283,6 +289,8 @@ async def live_session(ws: WebSocket):
 
     await ws.accept()
     ip = _client_ip(ws)
+
+    stats = {"sent": 0, "dropped": 0, "received": 0}
 
     refusal = await limiter.acquire(ip)
     if refusal:
@@ -330,8 +338,8 @@ async def live_session(ws: WebSocket):
                 )
 
                 tasks = [
-                    asyncio.create_task(_pump_client_to_vertex(ws, upstream)),
-                    asyncio.create_task(_pump_vertex_to_client(ws, upstream)),
+                    asyncio.create_task(_pump_client_to_model(ws, upstream, stats)),
+                    asyncio.create_task(_pump_model_to_client(ws, upstream, stats)),
                 ]
                 done, pending = await asyncio.wait(
                     tasks,
@@ -391,7 +399,16 @@ async def live_session(ws: WebSocket):
             await ws.close()
         except Exception:  # noqa: BLE001
             pass
-        log.info("session end ip=%s", ip)
+        # sent=0 means the browser never delivered audio -- look at the client,
+        # not the model. dropped>0 means frames were filtered by
+        # sanitize_client_frame, which is a client/server contract mismatch.
+        log.info(
+            "session end ip=%s frames sent=%s dropped=%s received=%s",
+            ip,
+            stats.get("sent", 0),
+            stats.get("dropped", 0),
+            stats.get("received", 0),
+        )
 
 
 # ---------------------------------------------------------------------------
