@@ -117,9 +117,21 @@ Add your custom domain's origin to that list too, comma-separated, once mapped.
 ## 6. Check it
 
 ```bash
-curl -s $URL/healthz            # {"ok":true,"project":true}
+curl -s $URL/healthz            # {"ok":true,"project":true,"projectSource":"GOOGLE_CLOUD_PROJECT"}
 curl -s $URL/api/agents | head  # five built-in agents
 ```
+
+`projectSource` tells you where the project id came from:
+
+| value | meaning |
+| --- | --- |
+| `GOOGLE_CLOUD_PROJECT` | the env var set by step 5. What you want. |
+| `ADC` | the env var is missing; the id came from the metadata server. Works, but the `--set-env-vars` above did not land — fix the deploy so the config is explicit. |
+| `unset` | no project at all. Every live session will refuse to start. |
+
+Cloud Run does not set `GOOGLE_CLOUD_PROJECT` for you the way App Engine and
+Cloud Functions do, so it has to come from `--set-env-vars`; the `ADC` fallback
+exists only so a forgotten flag degrades to a warning instead of an outage.
 
 Then open the URL, click through to an agent, and talk to it. Check the studio
 at `$URL/studio`.

@@ -7,6 +7,45 @@ entirely with environment variables and no config files in the image.
 import os
 import secrets
 
+# Environment variables that can name the GCP project, in precedence order.
+# GOOGLE_CLOUD_PROJECT is the current one; the other two are what older Google
+# runtimes set and cost nothing to honour.
+_PROJECT_ENV_VARS = ("GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "GCP_PROJECT")
+
+
+def _resolve_project() -> tuple[str, str]:
+    """Find the GCP project id, and report where it came from.
+
+    Cloud Run does *not* inject GOOGLE_CLOUD_PROJECT into the container the way
+    App Engine and Cloud Functions do. A deploy that omits
+    `--set-env-vars GOOGLE_CLOUD_PROJECT=...` therefore starts cleanly and then
+    fails every live session with "Server is missing GOOGLE_CLOUD_PROJECT",
+    which points at the wrong thing: the credentials are fine, only the name of
+    the project is absent.
+
+    Application Default Credentials already know the answer -- from the
+    metadata server on Cloud Run, and from the gcloud ADC file or a
+    service-account key locally -- so fall back to those instead of failing on
+    a missing env var. Only reached when no env var is set, so the configured
+    path costs nothing and importing this module stays offline.
+    """
+    for name in _PROJECT_ENV_VARS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value, name
+
+    try:
+        import google.auth
+
+        _, project = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+    except Exception:  # noqa: BLE001 - no ADC, no metadata server, no library
+        return "", "unset"
+
+    project = (project or "").strip()
+    return (project, "ADC") if project else ("", "unset")
+
 
 def _bool(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
@@ -26,7 +65,9 @@ class Settings:
     # ---- Google Cloud / Vertex AI -------------------------------------
     # PROJECT_ID is required. On Cloud Run the attached service account
     # supplies credentials automatically via ADC -- no key file needed.
-    PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+    # PROJECT_SOURCE records which mechanism supplied the id, so a
+    # misconfigured deploy is one /healthz away from being obvious.
+    PROJECT_ID, PROJECT_SOURCE = _resolve_project()
     LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1").strip()
     MODEL = os.environ.get(
         "GEMINI_MODEL", "gemini-live-2.5-flash-native-audio"
@@ -94,7 +135,9 @@ class Settings:
         problems = []
         if not self.PROJECT_ID:
             problems.append(
-                "GOOGLE_CLOUD_PROJECT is not set -- the Vertex model URI cannot be built."
+                "No Google Cloud project could be determined -- the Vertex model URI "
+                "cannot be built. Set GOOGLE_CLOUD_PROJECT (Cloud Run does not set it "
+                "for you) or attach credentials that name a project."
             )
         if not self.STUDIO_PASSWORD_HASH and not self.STUDIO_PASSWORD:
             problems.append(

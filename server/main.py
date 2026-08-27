@@ -59,8 +59,9 @@ async def lifespan(app: FastAPI):
     for problem in settings.validate():
         log.warning("CONFIG: %s", problem)
     log.info(
-        "EVA demo up | project=%s location=%s model=%s store=%s",
+        "EVA demo up | project=%s (via %s) location=%s model=%s store=%s",
         settings.PROJECT_ID or "(unset)",
+        settings.PROJECT_SOURCE,
         settings.LOCATION,
         settings.MODEL,
         settings.STORE_BACKEND,
@@ -89,7 +90,14 @@ async def security_headers(request: Request, call_next):
 
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "project": bool(settings.PROJECT_ID)}
+    # projectSource names where the project id came from -- an env var, ADC, or
+    # nowhere. It is the one thing you want to see when a deploy comes up with
+    # no project, and it exposes nothing an anonymous caller could use.
+    return {
+        "ok": True,
+        "project": bool(settings.PROJECT_ID),
+        "projectSource": settings.PROJECT_SOURCE,
+    }
 
 
 @app.get("/api/agents")
@@ -271,7 +279,9 @@ async def live_session(ws: WebSocket):
 
         if not settings.PROJECT_ID:
             await ws.send_text(
-                json.dumps({"evaError": "Server is missing GOOGLE_CLOUD_PROJECT."})
+                json.dumps(
+                    {"evaError": "Server is not configured with a Google Cloud project."}
+                )
             )
             await ws.close(code=CLOSE_INTERNAL)
             return
