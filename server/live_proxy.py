@@ -120,6 +120,13 @@ def build_setup_message(agent: dict[str, Any]) -> dict[str, Any]:
         },
         "input_audio_transcription": {},
         "output_audio_transcription": {},
+        # Without this a session is capped at 15 minutes and, worse, is killed
+        # outright once accumulated audio fills the context window -- which
+        # reads as a crash mid-conversation rather than a limit. The sliding
+        # window drops the oldest turns server-side instead. Note this does not
+        # lift the ~10 minute cap on a single *connection*; surviving that needs
+        # session resumption, which this demo does not implement.
+        "context_window_compression": {"sliding_window": {}},
         # No realtime_input_config: automatic voice activity detection is on by
         # default, and sending the block is optional. The previous config named
         # START_SENSITIVITY_UNSPECIFIED / END_SENSITIVITY_UNSPECIFIED, which are

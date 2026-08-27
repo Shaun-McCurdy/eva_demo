@@ -272,13 +272,29 @@ async def _pump_model_to_client(ws: WebSocket, upstream, stats: dict) -> None:
             raw = raw.decode("utf-8", "replace")
         stats["received"] += 1
         await ws.send_text(raw)
-        if not greeted:
-            try:
-                if json.loads(raw).get("setupComplete") is not None:
-                    greeted = True
-                    await upstream.send(json.dumps(opening_turn()))
-            except (json.JSONDecodeError, AttributeError):
-                pass
+
+        # Substring guard before parsing: audio frames are large base64 and
+        # decoding every one of them to find two rare control messages is not
+        # worth the CPU on a shared instance.
+        if greeted and "goAway" not in raw:
+            continue
+        try:
+            frame = json.loads(raw)
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if not isinstance(frame, dict):
+            continue
+        if not greeted and frame.get("setupComplete") is not None:
+            greeted = True
+            await upstream.send(json.dumps(opening_turn()))
+        going = frame.get("goAway")
+        if going is not None:
+            # Google warns before it ends a connection. Unlogged, the session
+            # just stops and is indistinguishable from a crash.
+            log.warning(
+                "upstream goAway timeLeft=%s -- connection is being ended",
+                going.get("timeLeft") if isinstance(going, dict) else going,
+            )
 
 
 @app.websocket("/ws/live")
