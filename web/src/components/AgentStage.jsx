@@ -5,6 +5,7 @@ import Transcript from "./Transcript";
 import { api } from "../lib/api";
 import { EvaLiveClient, Msg } from "../lib/live-client";
 import { CameraStreamer, MicStreamer, VoicePlayer } from "../lib/media";
+import { accentVars } from "../lib/theme";
 
 let turnSeq = 0;
 const nextId = () => `t${++turnSeq}`;
@@ -310,7 +311,7 @@ export default function AgentStage() {
   }[phase];
 
   return (
-    <main className="stage" style={{ "--accent": agent.accent }}>
+    <main className="stage" style={accentVars(agent.accent)}>
       <div className="shell">
         <div className="stage-top">
           <div className="stage-title">

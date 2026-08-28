@@ -10,10 +10,19 @@ export function SiteHeader() {
     <header className="site-header">
       <div className="shell">
         <Link to="/" className="brand">
-          <span className="brand-mark">EVA</span>
-          <span>
-            Enghouse Virtual Agent{" "}
-            <span className="brand-sub">· live demo</span>
+          {/* The real mark, not a lettered chip. On the dark ground it is
+              reversed to white per the guide's rule for solid backgrounds; on
+              light it is the two-colour positive. */}
+          <img
+            className="brand-logo"
+            src="/logos/ei-linear.svg"
+            alt="Enghouse Interactive"
+            width="203"
+            height="36"
+          />
+          <span className="brand-divider" aria-hidden="true" />
+          <span className="brand-product">
+            EVA <span className="brand-sub">· live demo</span>
           </span>
         </Link>
         <nav className="header-nav">

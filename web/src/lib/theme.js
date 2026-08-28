@@ -61,3 +61,35 @@ export function toggleTheme() {
 export function followsSystem() {
   return read() === null;
 }
+
+/**
+ * Style props for an agent's accent colour.
+ *
+ * `--on-accent` is the readable ink for text sitting *on* the accent, chosen by
+ * the accent's own luminance rather than by the theme. That distinction matters:
+ * a mid-dark accent like the brand violet wants white on it even on the dark
+ * theme, while Bright Blue and Yellow want near-black. Picking by theme instead
+ * is what forced the accents to be lightened for contrast, which is exactly the
+ * washed-out look we are undoing.
+ */
+export function accentVars(hex) {
+  return { "--accent": hex, "--on-accent": readableInk(hex) };
+}
+
+/** WCAG relative luminance, then whichever of ink/paper contrasts better. */
+function readableInk(hex) {
+  const h = String(hex || "").replace("#", "");
+  if (h.length !== 6) return "#060b18";
+  const channel = (v) => {
+    const c = parseInt(v, 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const L =
+    0.2126 * channel(h.slice(0, 2)) +
+    0.7152 * channel(h.slice(2, 4)) +
+    0.0722 * channel(h.slice(4, 6));
+  // Contrast against near-black vs against near-white, and take the winner.
+  const vsDark = (L + 0.05) / (0.0055 + 0.05);
+  const vsLight = (0.973 + 0.05) / (L + 0.05);
+  return vsDark >= vsLight ? "#060b18" : "#f8faf9";
+}

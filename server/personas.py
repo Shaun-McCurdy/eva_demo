@@ -165,7 +165,7 @@ Describe what Enghouse does and let the comparison stand on its own.
         "tagline": "Card servicing and account support",
         "blurb": "Retail bank servicing line. Card disputes, lost cards, payments "
                  "and balances, with a hard stop at anything needing verified identity.",
-        "accent": "#71B2C9",
+        "accent": "#0DC935",
         "voice": "Charon",
         "temperature": 0.9,
         "goal": (
@@ -239,7 +239,7 @@ works instead.
         "tagline": "Appointments and patient access",
         "blurb": "Patient access line. Booking, rescheduling, prep instructions "
                  "and directions, with clinical questions routed to clinicians.",
-        "accent": "#0DC935",
+        "accent": "#FF5273",
         "voice": "Kore",
         "temperature": 0.8,
         "goal": (
@@ -386,7 +386,7 @@ and what you already did, when the customer:
         "tagline": "Outages, meter readings and billing",
         "blurb": "Energy and water servicing. Outage reporting, readings, billing "
                  "and moves, with safety and vulnerability handled first.",
-        "accent": "#986CAD",
+        "accent": "#8C5CA4",
         "voice": "Fenrir",
         "temperature": 0.9,
         "goal": (
