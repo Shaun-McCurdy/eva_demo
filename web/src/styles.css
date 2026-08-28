@@ -321,7 +321,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* ---- Avatar ------------------------------------------------------------ */
 
-.avatar-wrap { position: relative; width: 260px; height: 260px; display: grid; place-items: center; }
+.avatar-wrap { position: relative; width: 340px; height: 340px; display: grid; place-items: center; }
 
 /* The rings are drawn on the canvas, so there is no ring, disc or portrait to
    style here -- the canvas simply fills the wrap. Its own glow is painted in
@@ -331,17 +331,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
   width: 100%; height: 100%;
   display: block;
 }
-
-.avatar-listening {
-  position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 0.4rem;
-  padding: 0.3rem 0.8rem; border-radius: 999px;
-  background: rgba(5, 8, 15, 0.85); border: 1px solid var(--border);
-  font-size: 0.75rem; color: var(--text-muted); white-space: nowrap;
-}
-
-.eq { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
-.eq span { width: 2px; background: var(--accent); border-radius: 1px; transition: height 0.08s linear; }
 
 /* ---- Transcript -------------------------------------------------------- */
 
@@ -563,6 +552,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
   .shell { width: min(1180px, 100% - 2rem); }
   /* The canvas fills the wrap and derives its geometry from the smaller side,
      so sizing the wrap is enough. */
-  .avatar-wrap { width: 210px; height: 210px; }
+  .avatar-wrap { width: 270px; height: 270px; }
   .brand-sub { display: none; }
 }

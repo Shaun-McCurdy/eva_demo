@@ -17,9 +17,9 @@ export default function AgentStage() {
   const [phase, setPhase] = useState("idle"); // idle | connecting | live | ended | error
   const [error, setError] = useState("");
   const [turns, setTurns] = useState([]);
-  const [micLevel, setMicLevel] = useState(0);
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [micBlocked, setMicBlocked] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
 
   const clientRef = useRef(null);
@@ -30,7 +30,7 @@ export default function AgentStage() {
 
   // Stable identity on purpose. The Avatar keys its rAF loop on this, and an
   // inline object literal would tear the loop down and rebuild it on every
-  // render -- which micLevel triggers several times a second. The refs
+  // render -- which any state change triggers. The refs
   // themselves never change, so an empty dep list is correct.
   const audioSources = useMemo(() => ({ player: playerRef, mic: micRef }), []);
   const speakingUntilRef = useRef(0);
@@ -93,10 +93,10 @@ export default function AgentStage() {
     playerRef.current = null;
     clientRef.current?.disconnect();
     clientRef.current = null;
-    setMicLevel(0);
     setSpeaking(false);
     setCameraOn(false);
     setMuted(false);
+    setMicBlocked(false);
   }, []);
 
   useEffect(() => teardown, [teardown]);
@@ -160,7 +160,12 @@ export default function AgentStage() {
   );
 
   // ---- start ------------------------------------------------------------
-  const start = useCallback(async () => {
+  /**
+   * `opening` is text the visitor typed before the session existed. When it is
+   * present EVA's scripted greeting is suppressed, so she answers the question
+   * instead of talking past it.
+   */
+  const start = useCallback(async (opening = null) => {
     setError("");
     setPhase("connecting");
     setTurns([]);
@@ -174,13 +179,34 @@ export default function AgentStage() {
       client.onMessage = handleMessage;
       clientRef.current = client;
 
-      await client.connect();
+      await client.connect({ greet: !opening });
 
-      const mic = new MicStreamer(client, { onLevel: setMicLevel });
-      await mic.start();
-      micRef.current = mic;
+      // The microphone is required to start by voice and optional when the
+      // visitor started by typing -- someone who chose to type may well have
+      // declined it, and the session works without it. EVA still answers out
+      // loud; they just keep using the composer.
+      let micOk = true;
+      try {
+        const mic = new MicStreamer(client);
+        await mic.start();
+        micRef.current = mic;
+        setMicBlocked(false);
+      } catch (err) {
+        if (!opening) throw err;
+        micOk = false;
+        setMicBlocked(true);
+      }
 
       setPhase("live");
+
+      if (opening) {
+        client.sendText(opening);
+        setTurns([{ id: nextId(), role: "visitor", text: opening, finished: true }]);
+      }
+      // After the opening turn, which replaces the transcript wholesale.
+      if (!micOk) {
+        addSystemLine("No microphone — keep typing and EVA will answer out loud.");
+      }
 
       // Only job left here is deciding when EVA has stopped talking. The
       // avatar reads the audio graph itself, so this no longer needs to push a
@@ -203,7 +229,24 @@ export default function AgentStage() {
       setError(message);
       setPhase("error");
     }
-  }, [slug, handleMessage, teardown]);
+  }, [slug, handleMessage, teardown, addSystemLine]);
+
+  // The composer is live before the session is. Typing is a way in, not just a
+  // fallback once you are already talking.
+  const sendText = useCallback(
+    (text) => {
+      if (clientRef.current && phase === "live") {
+        clientRef.current.sendText(text);
+        setTurns((prev) => [
+          ...prev,
+          { id: nextId(), role: "visitor", text, finished: true },
+        ]);
+        return;
+      }
+      start(text);
+    },
+    [phase, start]
+  );
 
   const toggleMute = () => {
     const next = !muted;
@@ -228,11 +271,6 @@ export default function AgentStage() {
     } catch {
       addSystemLine("Could not start the camera.");
     }
-  };
-
-  const sendText = (text) => {
-    clientRef.current?.sendText(text);
-    setTurns((prev) => [...prev, { id: nextId(), role: "visitor", text, finished: true }]);
   };
 
   // ---- render -----------------------------------------------------------
@@ -287,12 +325,7 @@ export default function AgentStage() {
 
         <div className="stage-body">
           <section className="avatar-panel">
-            <Avatar
-              sources={audioSources}
-              micLevel={micLevel}
-              speaking={speaking}
-              listening={live && !muted}
-            />
+            <Avatar sources={audioSources} speaking={speaking} />
 
             <div className="caption">
               {phase === "idle" && (
@@ -341,9 +374,10 @@ export default function AgentStage() {
                   <button
                     className="icon-btn"
                     onClick={toggleMute}
+                    disabled={micBlocked}
                     data-active={muted}
                     aria-label={muted ? "Unmute microphone" : "Mute microphone"}
-                    title={muted ? "Unmute" : "Mute"}
+                    title={micBlocked ? "No microphone available" : muted ? "Unmute" : "Mute"}
                   >
                     {muted ? <MicOffIcon /> : <MicIcon />}
                   </button>
@@ -374,7 +408,8 @@ export default function AgentStage() {
             turns={turns}
             agentName={agent.name}
             onSend={sendText}
-            canSend={live}
+            canSend={phase !== "connecting"}
+            live={live}
           />
         </div>
       </div>

@@ -97,15 +97,21 @@ export class EvaLiveClient {
     this.onClose = () => {};
   }
 
-  connect() {
+  /**
+   * `greet: false` suppresses EVA's opening turn, for when the visitor has
+   * already typed something. Without it she would deliver her scripted hello
+   * and then answer the question, which reads as if she was not listening.
+   */
+  connect({ greet = true } = {}) {
     return new Promise((resolve, reject) => {
       let settled = false;
       this.socket = new WebSocket(socketUrl());
 
       this.socket.onopen = () => {
         this.connected = true;
-        // The whole client-side setup: name the agent, nothing more.
-        this.socket.send(JSON.stringify({ agent: this.agentSlug }));
+        // Still the whole client-side setup: an agent name and one flag. The
+        // server owns the model, the instructions and the greeting text.
+        this.socket.send(JSON.stringify({ agent: this.agentSlug, greet }));
         this.onOpen();
       };
 

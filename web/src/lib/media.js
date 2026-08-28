@@ -66,9 +66,8 @@ function bufferToBase64(buffer) {
 
 /** Captures the microphone and streams 16 kHz PCM to the client. */
 export class MicStreamer {
-  constructor(client, { onLevel } = {}) {
+  constructor(client) {
     this.client = client;
-    this.onLevel = onLevel || (() => {});
     this.audioContext = null;
     this.worklet = null;
     this.mediaStream = null;
@@ -76,7 +75,6 @@ export class MicStreamer {
     this.muted = false;
     this.analyser = null;
     this.freqBytes = null;
-    this.scratch = null;
   }
 
   /** Fills `out` with the visitor's spectrum and returns their level, 0..1. */
@@ -115,17 +113,15 @@ export class MicStreamer {
     this.analyser.fftSize = 512;
     this.analyser.smoothingTimeConstant = 0.6;
     this.freqBytes = new Uint8Array(this.analyser.frequencyBinCount);
-    this.scratch = new Float32Array(SPECTRUM_BINS);
 
     this.worklet.port.onmessage = (event) => {
       if (!this.streaming || event.data.type !== "audio") return;
-      const input = event.data.data;
-      this.onLevel(
-        this.muted ? 0 : readSpectrum(this.analyser, this.freqBytes, this.scratch)
-      );
       if (this.muted) return;
+      // No level is computed here any more. The avatar pulls spectrum() from
+      // its own animation frame, so measuring on every captured buffer was
+      // work nothing consumed.
       if (this.client && this.client.connected) {
-        this.client.sendAudioChunk(bufferToBase64(toPCM16(input)));
+        this.client.sendAudioChunk(bufferToBase64(toPCM16(event.data.data)));
       }
     };
 
@@ -142,7 +138,6 @@ export class MicStreamer {
     if (this.mediaStream) {
       this.mediaStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
     }
-    if (muted) this.onLevel(0);
   }
 
   stop() {
@@ -161,7 +156,6 @@ export class MicStreamer {
       this.mediaStream.getTracks().forEach((t) => t.stop());
       this.mediaStream = null;
     }
-    this.onLevel(0);
   }
 }
 

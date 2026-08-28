@@ -265,7 +265,9 @@ async def _pump_client_to_model(ws: WebSocket, upstream, stats: dict) -> None:
         await upstream.send(safe)
 
 
-async def _pump_model_to_client(ws: WebSocket, upstream, stats: dict) -> None:
+async def _pump_model_to_client(
+    ws: WebSocket, upstream, stats: dict, greet: bool = True
+) -> None:
     greeted = False
     async for raw in upstream:
         if isinstance(raw, bytes):
@@ -285,8 +287,11 @@ async def _pump_model_to_client(ws: WebSocket, upstream, stats: dict) -> None:
         if not isinstance(frame, dict):
             continue
         if not greeted and frame.get("setupComplete") is not None:
+            # Flip this either way: it also stops us parsing every audio frame
+            # from here on, whether or not a greeting was sent.
             greeted = True
-            await upstream.send(json.dumps(opening_turn()))
+            if greet:
+                await upstream.send(json.dumps(opening_turn()))
         going = frame.get("goAway")
         if going is not None:
             # Google warns before it ends a connection. Unlogged, the session
@@ -323,6 +328,9 @@ async def live_session(ws: WebSocket):
             return
 
         slug = str(hello.get("agent") or "concierge")
+        # The visitor may open with typed text instead of waiting to be greeted.
+        # Anything other than an explicit false keeps the greeting.
+        greet = hello.get("greet") is not False
         agent = registry.get(slug)
         if agent is None or not agent.get("enabled", True):
             await ws.send_text(json.dumps({"evaError": "That agent is not available."}))
@@ -355,7 +363,9 @@ async def live_session(ws: WebSocket):
 
                 tasks = [
                     asyncio.create_task(_pump_client_to_model(ws, upstream, stats)),
-                    asyncio.create_task(_pump_model_to_client(ws, upstream, stats)),
+                    asyncio.create_task(
+                        _pump_model_to_client(ws, upstream, stats, greet)
+                    ),
                 ]
                 done, pending = await asyncio.wait(
                     tasks,

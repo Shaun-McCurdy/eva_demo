@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 const LABELS = { agent: "EVA", visitor: "You", system: "" };
 
-export default function Transcript({ turns, agentName, onSend, canSend }) {
+export default function Transcript({ turns, agentName, onSend, canSend, live }) {
   const bodyRef = useRef(null);
   const inputRef = useRef(null);
   const pinnedToBottom = useRef(true);
@@ -46,7 +46,8 @@ export default function Transcript({ turns, agentName, onSend, canSend }) {
       >
         {turns.length === 0 ? (
           <p className="transcript-empty">
-            Everything {agentName} hears and says appears here, live.
+            Everything {agentName} hears and says appears here, live. You can
+            speak, or type below to begin.
           </p>
         ) : (
           turns.map((turn) => (
@@ -71,7 +72,13 @@ export default function Transcript({ turns, agentName, onSend, canSend }) {
         <input
           ref={inputRef}
           type="text"
-          placeholder={canSend ? "Or type instead…" : "Start the conversation first"}
+          placeholder={
+            !canSend
+              ? "Connecting…"
+              : live
+                ? "Or type instead…"
+                : `Type to start talking to ${agentName || "EVA"}…`
+          }
           disabled={!canSend}
           aria-label="Type a message"
         />

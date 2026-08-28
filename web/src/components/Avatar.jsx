@@ -41,7 +41,7 @@ function binAt(i, total) {
   return Math.min(SPECTRUM_BINS - 1, Math.floor((k / half) * SPECTRUM_BINS));
 }
 
-export default function Avatar({ sources, micLevel = 0, speaking = false, listening = false }) {
+export default function Avatar({ sources, speaking = false }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -72,7 +72,7 @@ export default function Avatar({ sources, micLevel = 0, speaking = false, listen
       for (let i = 0; i < total; i++) {
         const v = spec[binAt(i, total)];
         const a = (i / total) * Math.PI * 2 - Math.PI / 2 + t * 0.06 * dir;
-        const len = 1.5 + v * unit * 0.1;
+        const len = 1.5 + v * unit * 0.08;
         const ca = Math.cos(a);
         const sa = Math.sin(a);
         const r2 = radius + len * (outward ? 1 : -1);
@@ -125,8 +125,11 @@ export default function Avatar({ sources, micLevel = 0, speaking = false, listen
       if (player) levelA = player.spectrum(specA); else specA.fill(0);
       if (mic) levelB = mic.spectrum(specB); else specB.fill(0);
 
-      const rIn = g.unit * 0.145;
-      const rOut = g.unit * 0.255;
+      // The rings used to occupy barely half the canvas. Pushed outward, with
+      // the bar length trimmed so the two never collide at full amplitude:
+      // inner reaches 0.27, outer reaches down to 0.28.
+      const rIn = g.unit * 0.19;
+      const rOut = g.unit * 0.36;
 
       const glow = ctx.createRadialGradient(g.cx, g.cy, 0, g.cx, g.cy, rIn * 2.6);
       glow.addColorStop(0, rgba(accent, 0.22 + levelA * 0.3));
@@ -181,30 +184,6 @@ export default function Avatar({ sources, micLevel = 0, speaking = false, listen
   return (
     <div className="avatar-wrap" data-speaking={speaking}>
       <canvas ref={canvasRef} className="avatar-canvas" role="img" aria-label="EVA" />
-
-      {listening && !speaking && (
-        <div className="avatar-listening">
-          <Equaliser level={micLevel} />
-          Listening
-        </div>
-      )}
     </div>
-  );
-}
-
-function Equaliser({ level }) {
-  const bars = 5;
-  return (
-    <span className="eq" aria-hidden="true">
-      {Array.from({ length: bars }).map((_, i) => {
-        const falloff = 1 - Math.abs(i - (bars - 1) / 2) / bars;
-        return (
-          <span
-            key={i}
-            style={{ height: `${Math.max(3, Math.min(12, 3 + level * 90 * falloff))}px` }}
-          />
-        );
-      })}
-    </span>
   );
 }
