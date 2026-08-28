@@ -18,11 +18,25 @@ import { SPECTRUM_BINS } from "../lib/media";
  * not motion.
  */
 
-const VISITOR = "#cbd5e1";
-
-function readAccent(el) {
-  const v = getComputedStyle(el).getPropertyValue("--accent").trim();
-  return v || "#00a3e0";
+/**
+ * Everything colour-related comes from CSS custom properties so the avatar
+ * follows the theme without being told about it.
+ *
+ * `ink` and `blend` matter more than they look. On the dark ground the rings
+ * read because they are additive light -- glow stacking on near-black. Composite
+ * that same way over Silver and it saturates to white and the avatar vanishes,
+ * so the light theme switches to normal compositing and paints with a dark ink
+ * instead of a white one.
+ */
+function readPalette(el) {
+  const cs = getComputedStyle(el);
+  const get = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
+  return {
+    accent: get("--accent", "#0bacf4"),
+    visitor: get("--avatar-visitor", "#cbd5e1"),
+    ink: get("--avatar-ink", "#ffffff"),
+    blend: get("--avatar-blend", "lighter"),
+  };
 }
 
 /** #rrggbb -> rgba(), so the accent can come from CSS and still take an alpha. */
@@ -54,8 +68,8 @@ export default function Avatar({ sources, speaking = false }) {
     const specB = new Float32Array(SPECTRUM_BINS);
 
     let frame = null;
-    let accent = readAccent(canvas);
-    let accentAt = 0;
+    let palette = readPalette(canvas);
+    let paletteAt = 0;
 
     const ring = (g, radius, spec, level, colour, dir, outward, t) => {
       const { cx, cy, unit } = g;
@@ -95,12 +109,14 @@ export default function Avatar({ sources, speaking = false }) {
     const draw = (now) => {
       const t = now / 1000;
 
-      // The accent is per-agent and set inline on the stage; re-reading it
-      // every few frames costs nothing and avoids threading it through props.
-      if (now - accentAt > 500) {
-        accent = readAccent(canvas);
-        accentAt = now;
+      // Per-agent accent is set inline on the stage and the theme can change
+      // under us at any moment; re-reading a few times a second costs nothing
+      // and avoids threading either through props.
+      if (now - paletteAt > 400) {
+        palette = readPalette(canvas);
+        paletteAt = now;
       }
+      const { accent, visitor, ink, blend } = palette;
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const rect = canvas.getBoundingClientRect();
@@ -131,6 +147,7 @@ export default function Avatar({ sources, speaking = false }) {
       const rIn = g.unit * 0.19;
       const rOut = g.unit * 0.36;
 
+      ctx.globalCompositeOperation = blend;
       const glow = ctx.createRadialGradient(g.cx, g.cy, 0, g.cx, g.cy, rIn * 2.6);
       glow.addColorStop(0, rgba(accent, 0.22 + levelA * 0.3));
       glow.addColorStop(1, rgba(accent, 0));
@@ -138,12 +155,13 @@ export default function Avatar({ sources, speaking = false }) {
       ctx.beginPath();
       ctx.arc(g.cx, g.cy, rIn * 2.6, 0, Math.PI * 2);
       ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
 
       ring(g, rIn, specA, levelA, accent, 1, true, t);
-      ring(g, rOut, specB, levelB, VISITOR, -1, false, t);
+      ring(g, rOut, specB, levelB, visitor, -1, false, t);
 
       const core = ctx.createRadialGradient(g.cx, g.cy, 0, g.cx, g.cy, rIn * 0.8);
-      core.addColorStop(0, rgba("#ffffff", 0.35 + levelA * 0.4));
+      core.addColorStop(0, rgba(ink, 0.35 + levelA * 0.4));
       core.addColorStop(0.5, rgba(accent, 0.5 + levelA * 0.3));
       core.addColorStop(1, rgba(accent, 0));
       ctx.fillStyle = core;

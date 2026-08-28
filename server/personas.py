@@ -72,7 +72,7 @@ PERSONAS = [
         "tagline": "Ask anything about Enghouse Virtual Agent",
         "blurb": "The default agent. Explains what EVA does, qualifies interest, "
                  "and hands off to an account team.",
-        "accent": "#00A3E0",
+        "accent": "#0BACF4",
         "voice": "Aoede",
         "temperature": 1.0,
         "goal": (
@@ -165,7 +165,7 @@ Describe what Enghouse does and let the comparison stand on its own.
         "tagline": "Card servicing and account support",
         "blurb": "Retail bank servicing line. Card disputes, lost cards, payments "
                  "and balances, with a hard stop at anything needing verified identity.",
-        "accent": "#1F6FEB",
+        "accent": "#71B2C9",
         "voice": "Charon",
         "temperature": 0.9,
         "goal": (
@@ -239,7 +239,7 @@ works instead.
         "tagline": "Appointments and patient access",
         "blurb": "Patient access line. Booking, rescheduling, prep instructions "
                  "and directions, with clinical questions routed to clinicians.",
-        "accent": "#12A594",
+        "accent": "#0DC935",
         "voice": "Kore",
         "temperature": 0.8,
         "goal": (
@@ -315,7 +315,7 @@ for the call in one or two sentences so the patient does not have to start over.
         "tagline": "Orders, returns and delivery",
         "blurb": "Post-purchase support. Where-is-my-order, returns and refunds, "
                  "sizing and stock, with recovery when the customer is annoyed.",
-        "accent": "#E8590C",
+        "accent": "#EF6D2B",
         "voice": "Puck",
         "temperature": 1.0,
         "goal": (
@@ -386,7 +386,7 @@ and what you already did, when the customer:
         "tagline": "Outages, meter readings and billing",
         "blurb": "Energy and water servicing. Outage reporting, readings, billing "
                  "and moves, with safety and vulnerability handled first.",
-        "accent": "#7C4DFF",
+        "accent": "#986CAD",
         "voice": "Fenrir",
         "temperature": 0.9,
         "goal": (

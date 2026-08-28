@@ -1,4 +1,9 @@
-"""Shared-password auth for the sales-engineer studio.
+"""Auth for the sales-engineer studio.
+
+Two ways in, one session out. Microsoft 365 is the front door; the shared
+password remains as break-glass while SSO beds in. Both paths end at
+`issue_session`, so everything downstream -- the studio API, the agent CRUD --
+never learns which was used.
 
 The password is compared against a scrypt hash in constant time, and a successful
 login mints a signed, expiring, HttpOnly cookie. Nothing about the session lives
@@ -58,6 +63,9 @@ def verify_password(password: str, encoded: str) -> bool:
 
 def check_studio_password(password: str) -> bool:
     """True when the supplied password matches the configured secret."""
+    if not settings.STUDIO_PASSWORD_FALLBACK:
+        # Switched off deliberately: SSO is the only way in.
+        return False
     if not password:
         return False
     if settings.STUDIO_PASSWORD_HASH:
@@ -82,6 +90,39 @@ def read_session(token: str | None) -> dict | None:
         return _serializer.loads(token, max_age=settings.SESSION_TTL_SECONDS)
     except (BadSignature, SignatureExpired):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Microsoft SSO: carrying the auth-code flow across the round trip
+# ---------------------------------------------------------------------------
+
+# msal's initiate_auth_code_flow() hands back a dict holding the state, nonce
+# and PKCE verifier it generated. That dict has to survive a round trip through
+# Microsoft and come back to *any* Cloud Run instance -- the callback is a fresh
+# request and instances share no memory. Signing it into a short-lived cookie
+# keeps the whole flow stateless.
+#
+# A separate salt from the session serialiser means the two token types can
+# never be swapped for one another even though they share a key.
+_sso_serializer = URLSafeTimedSerializer(settings.SESSION_SECRET, salt="eva-sso-state")
+
+# Long enough for a slow sign-in with MFA, short enough that a captured flow is
+# useless by the time anyone finds it.
+SSO_STATE_TTL_SECONDS = 600
+
+
+def issue_sso_state(flow: dict) -> str:
+    return _sso_serializer.dumps(flow)
+
+
+def read_sso_state(token: str | None) -> dict | None:
+    if not token:
+        return None
+    try:
+        value = _sso_serializer.loads(token, max_age=SSO_STATE_TTL_SECONDS)
+    except (BadSignature, SignatureExpired):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 if __name__ == "__main__":

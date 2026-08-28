@@ -26,6 +26,8 @@ export const api = {
   publicAgents: () => request("/api/agents"),
   publicAgent: (slug) => request(`/api/agents/${encodeURIComponent(slug)}`),
 
+  authMethods: () => request("/api/studio/auth-methods"),
+
   login: (password, name) =>
     request("/api/studio/login", {
       method: "POST",

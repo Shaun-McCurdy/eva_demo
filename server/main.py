@@ -24,7 +24,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
@@ -175,6 +175,145 @@ async def studio_login(response: Response, payload: dict = Body(...)):
         path="/",
     )
     return {"ok": True, "who": label or "sales-engineer"}
+
+
+SSO_STATE_COOKIE = "eva_sso"
+
+
+def _redirect_uri(request: Request) -> str:
+    """Where Microsoft sends the visitor back.
+
+    Configured explicitly in any real deployment, because it has to match a URI
+    registered on the app registration character for character. The derived
+    form is a local-development convenience only.
+    """
+    if settings.MS_REDIRECT_URI:
+        return settings.MS_REDIRECT_URI
+    return str(request.url_for("studio_sso_callback"))
+
+
+# Constructing this performs OpenID discovery against Microsoft, so building
+# one per request would put a network round trip in front of every sign-in and
+# fail outright whenever login.microsoftonline.com hiccups. One instance, built
+# on first use, reused thereafter -- msal caches the authority metadata on it.
+_msal_singleton: dict = {}
+
+
+def _msal_app():
+    app_obj = _msal_singleton.get("app")
+    if app_obj is None:
+        import msal  # imported lazily so msal is optional when SSO is off
+
+        app_obj = msal.ConfidentialClientApplication(
+            client_id=settings.MS_CLIENT_ID,
+            client_credential=settings.MS_CLIENT_SECRET,
+            authority=settings.authority,
+        )
+        _msal_singleton["app"] = app_obj
+    return app_obj
+
+
+@app.get("/api/studio/auth-methods")
+async def studio_auth_methods():
+    """What the sign-in screen should offer. Never reveals any secret."""
+    return {"sso": settings.sso_configured, "password": settings.password_enabled}
+
+
+@app.get("/api/studio/sso/start")
+async def studio_sso_start(request: Request):
+    if not settings.sso_configured:
+        raise HTTPException(status_code=404, detail="Microsoft sign-in is not configured.")
+
+    try:
+        # initiate_auth_code_flow generates the state, the nonce and the PKCE
+        # pair, and puts the S256 challenge in the URL. Building that URL by
+        # hand is how you end up shipping a flow that looks like PKCE and is
+        # not: the older get_authorization_request_url() accepts and silently
+        # discards code_challenge arguments.
+        flow = _msal_app().initiate_auth_code_flow(
+            scopes=[],  # identity only; we never call Graph
+            redirect_uri=_redirect_uri(request),
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("sso start failed to build the authorization request")
+        raise HTTPException(
+            status_code=503, detail="Microsoft sign-in is unavailable right now."
+        )
+
+    response = RedirectResponse(flow["auth_uri"], status_code=307)
+    # The flow travels in a cookie rather than server memory: the callback is a
+    # fresh request that may land on any Cloud Run instance.
+    response.set_cookie(
+        key=SSO_STATE_COOKIE,
+        value=security.issue_sso_state(flow),
+        max_age=security.SSO_STATE_TTL_SECONDS,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite="lax",  # must survive Microsoft's cross-site redirect back
+        path="/",
+    )
+    return response
+
+
+@app.get("/api/studio/sso/callback", name="studio_sso_callback")
+async def studio_sso_callback(
+    request: Request, eva_sso: str | None = Cookie(default=None)
+):
+    def refuse(reason: str):
+        log.warning("sso refused: %s", reason)
+        r = RedirectResponse("/studio?sso=failed", status_code=303)
+        r.delete_cookie(SSO_STATE_COOKIE, path="/")
+        return r
+
+    flow = security.read_sso_state(eva_sso)
+    if flow is None:
+        return refuse("no valid flow cookie: expired, tampered with, or forged callback")
+
+    params = dict(request.query_params)
+    if "error" in params:
+        return refuse(
+            "provider returned %s: %s"
+            % (params.get("error"), params.get("error_description"))
+        )
+
+    try:
+        # This validates state and nonce against the flow and completes the
+        # PKCE exchange, then verifies the ID token's signature, issuer and
+        # audience. A mismatch raises or comes back as an error result.
+        result = _msal_app().acquire_token_by_auth_code_flow(flow, params)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("sso token exchange failed")
+        return refuse("token exchange raised %s" % type(exc).__name__)
+
+    if "error" in result:
+        return refuse("token exchange: %s" % result.get("error"))
+
+    claims = result.get("id_token_claims") or {}
+    # msal has verified the token itself. Which tenant it came from is ours to
+    # check: without this, any Microsoft account in the world would be valid.
+    if claims.get("tid") != settings.MS_TENANT_ID:
+        return refuse("tenant %r is not this tenant" % claims.get("tid"))
+
+    who = (
+        claims.get("preferred_username")
+        or claims.get("email")
+        or claims.get("name")
+        or "sales-engineer"
+    )
+
+    response = RedirectResponse("/studio", status_code=303)
+    response.set_cookie(
+        key=settings.COOKIE_NAME,
+        value=security.issue_session(str(who)[:120]),
+        max_age=settings.SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+    )
+    response.delete_cookie(SSO_STATE_COOKIE, path="/")
+    log.info("studio sign-in via sso who=%s", who)
+    return response
 
 
 @app.post("/api/studio/logout")

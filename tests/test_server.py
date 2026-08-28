@@ -297,6 +297,54 @@ check("garbage token is rejected", security.read_session("garbage") is None)
 
 
 # ---------------------------------------------------------------------------
+section("Studio sign-in")
+
+from settings import settings as _s  # noqa: E402
+
+check("configured password is accepted while the fallback is on",
+      security.check_studio_password("unit-test-password"))
+
+_s.STUDIO_PASSWORD_FALLBACK = False
+check("the fallback flag disables the password path entirely",
+      not security.check_studio_password("unit-test-password"))
+_s.STUDIO_PASSWORD_FALLBACK = True
+check("and turning it back on restores it",
+      security.check_studio_password("unit-test-password"))
+
+# password_enabled is what the sign-in screen keys off, so it has to agree
+_s.STUDIO_PASSWORD_FALLBACK = False
+check("password_enabled reports false when the fallback is off", not _s.password_enabled)
+_s.STUDIO_PASSWORD_FALLBACK = True
+check("password_enabled reports true when it is on", _s.password_enabled)
+
+check("sso_configured is false without the Microsoft settings", not _s.sso_configured)
+
+# The cookie carries msal's whole flow dict -- state, nonce and the PKCE
+# verifier it generated. Losing any of those makes the callback unverifiable.
+_flow = {
+    "state": "abc123",
+    "nonce": "def456",
+    "code_verifier": "v" * 64,
+    "redirect_uri": "https://example.test/api/studio/sso/callback",
+    "scope": ["openid", "profile"],
+}
+_state = security.issue_sso_state(_flow)
+_carried = security.read_sso_state(_state)
+check("sso state round-trips msal's whole flow dict", _carried == _flow)
+check("the PKCE verifier survives the round trip",
+      _carried and _carried["code_verifier"] == _flow["code_verifier"])
+check("a tampered sso state is rejected",
+      security.read_sso_state(_state[:-4] + "AAAA") is None)
+check("no sso state is rejected", security.read_sso_state(None) is None)
+# Salt separation: the two token types share a key, so they must not be
+# interchangeable -- a session cookie must never pass as OAuth state.
+check("a session token is not accepted as sso state",
+      security.read_sso_state(security.issue_session("someone")) is None)
+check("an sso state is not accepted as a session",
+      security.read_session(_state) is None)
+
+
+# ---------------------------------------------------------------------------
 section("API key never reaches a log line")
 
 from settings import settings  # noqa: E402

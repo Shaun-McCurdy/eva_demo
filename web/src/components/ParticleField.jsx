@@ -6,7 +6,13 @@ import { useEffect, useRef } from "react";
  * and pauses entirely when the tab is hidden so it costs nothing in the
  * background during a long demo.
  */
-export default function ParticleField({ accent = "#00a3e0", density = 0.00008 }) {
+/** Append an alpha to a #rrggbb, since the field is drawn straight to canvas. */
+function withAlpha(hex, alpha) {
+  const a = Math.max(0, Math.min(255, Math.round(alpha * 255)));
+  return `${hex}${a.toString(16).padStart(2, "0")}`;
+}
+
+export default function ParticleField({ accent = "#0bacf4", density = 0.00008 }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -14,6 +20,17 @@ export default function ParticleField({ accent = "#00a3e0", density = 0.00008 })
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // The field is a faint wash of the accent. On the dark ground a low alpha
+    // reads fine; on Silver the same value is invisible, so the strength comes
+    // from a token the theme sets rather than a constant baked in here.
+    const strength = () => {
+      const v = parseFloat(
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--particle-alpha")
+      );
+      return Number.isFinite(v) ? v : 0.33;
+    };
 
     let particles = [];
     let frame = null;
@@ -42,6 +59,8 @@ export default function ParticleField({ accent = "#00a3e0", density = 0.00008 })
 
     const draw = () => {
       ctx.clearRect(0, 0, width, height);
+      const dotAlpha = strength();
+      const lineAlpha = dotAlpha * 0.48;
 
       for (const p of particles) {
         if (!reduced) {
@@ -52,7 +71,7 @@ export default function ParticleField({ accent = "#00a3e0", density = 0.00008 })
         }
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = `${accent}55`;
+        ctx.fillStyle = withAlpha(accent, dotAlpha);
         ctx.fill();
       }
 
@@ -62,10 +81,10 @@ export default function ParticleField({ accent = "#00a3e0", density = 0.00008 })
           const dy = particles[i].y - particles[j].y;
           const dist2 = dx * dx + dy * dy;
           if (dist2 < 16000) {
-            const alpha = (1 - dist2 / 16000) * 0.16;
-            ctx.strokeStyle = `${accent}${Math.round(alpha * 255)
-              .toString(16)
-              .padStart(2, "0")}`;
+            ctx.strokeStyle = withAlpha(
+              accent,
+              (1 - dist2 / 16000) * lineAlpha
+            );
             ctx.lineWidth = 0.6;
             ctx.beginPath();
             ctx.moveTo(particles[i].x, particles[i].y);

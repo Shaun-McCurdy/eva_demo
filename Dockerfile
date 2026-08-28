@@ -48,6 +48,9 @@ ENV PORT=8080 \
 # history`), so nothing secret goes here. These are supplied at deploy time --
 # --set-secrets for the first three, --set-env-vars for the last:
 #
+#   MS_CLIENT_SECRET      The Microsoft app registration's secret. Note it
+#                         expires -- the failure mode is the studio locking
+#                         everyone out on a Monday morning.
 #   GEMINI_API_KEY        Authenticates every Live API session. A long-lived
 #                         bearer credential with no IAM scoping -- it belongs
 #                         in Secret Manager and nowhere else.

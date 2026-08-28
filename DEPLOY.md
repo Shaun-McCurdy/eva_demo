@@ -55,6 +55,11 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 ## 4. Create the secrets
 
 ```bash
+# The Microsoft app registration's client secret. Note these expire -- the
+# failure mode is the studio locking everyone out on a Monday morning, so put
+# the expiry in a calendar.
+printf %s 'the-client-secret' | gcloud secrets create eva-ms-secret --data-file=-
+
 # The Gemini API key, from https://aistudio.google.com/apikey. It is a
 # long-lived bearer credential with no IAM scoping, so it never goes in an env
 # var or into the image -- only here.
@@ -69,7 +74,7 @@ python server/security.py hash 'the-password-you-give-your-SEs' \
 python -c "import secrets; print(secrets.token_hex(32))" \
   | tr -d '\n' | gcloud secrets create eva-session-secret --data-file=-
 
-for s in eva-gemini-key eva-studio-hash eva-session-secret; do
+for s in eva-gemini-key eva-ms-secret eva-studio-hash eva-session-secret; do
   gcloud secrets add-iam-policy-binding $s \
     --member="serviceAccount:$SA" --role="roles/secretmanager.secretAccessor"
 done
@@ -88,8 +93,8 @@ gcloud run deploy $SERVICE \
   --concurrency 20 \
   --timeout 3600 \
   --session-affinity \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,COOKIE_SECURE=true,MAX_SESSION_SECONDS=600,MAX_CONCURRENT_SESSIONS=12" \
-  --set-secrets "GEMINI_API_KEY=eva-gemini-key:latest,STUDIO_PASSWORD_HASH=eva-studio-hash:latest,SESSION_SECRET=eva-session-secret:latest"
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID,STORE_BACKEND=firestore,COOKIE_SECURE=true,MAX_SESSION_SECONDS=600,MAX_CONCURRENT_SESSIONS=12,MS_TENANT_ID=$MS_TENANT_ID,MS_CLIENT_ID=$MS_CLIENT_ID,MS_REDIRECT_URI=$URL/api/studio/sso/callback" \
+  --set-secrets "GEMINI_API_KEY=eva-gemini-key:latest,MS_CLIENT_SECRET=eva-ms-secret:latest,STUDIO_PASSWORD_HASH=eva-studio-hash:latest,SESSION_SECRET=eva-session-secret:latest"
 ```
 
 Then lock the WebSocket to your own origin:
@@ -117,6 +122,30 @@ Add your custom domain's origin to that list too, comma-separated, once mapped.
 - **`--concurrency 20`** — each live session holds an open socket and a small
   amount of CPU. Packing hundreds onto one instance degrades audio for everyone.
 
+## 5b. Register the Microsoft app
+
+The studio signs in with Microsoft 365. Anyone in the tenant may sign in -- the
+tenant id is the only membership check, which is deliberate for an internal
+tool but does mean any Enghouse account can create, edit and delete demo agents.
+
+In Entra ID -> App registrations -> New registration:
+
+- **Redirect URI** (type Web): `$URL/api/studio/sso/callback`. It must match
+  `MS_REDIRECT_URI` character for character, so deploy once to learn `$URL`,
+  then register and redeploy.
+- **API permissions**: delegated `openid`, `profile`, `email`. Nothing else --
+  this app never calls Graph.
+- **Certificates & secrets**: a client secret, into `eva-ms-secret` above.
+
+```bash
+export MS_TENANT_ID=<directory (tenant) id>
+export MS_CLIENT_ID=<application (client) id>
+```
+
+`STUDIO_PASSWORD_FALLBACK` defaults to true so the shared password still works
+while SSO beds in. Set it to `false` once you have signed in with Microsoft
+successfully, and the studio then has exactly one way in.
+
 ## 6. Check it
 
 ```bash
@@ -126,6 +155,14 @@ curl -s $URL/api/agents | head  # five built-in agents
 
 `apiKey:false` means every live session will be refused — the `--set-secrets`
 above did not land. It reports only whether a key is configured, never its value.
+
+```bash
+curl -s $URL/api/studio/auth-methods   # {"sso":true,"password":true}
+```
+
+`sso:false` means the three `MS_*` values did not all land. `password:true`
+after you have switched the fallback off means `STUDIO_PASSWORD_FALLBACK` did
+not land either.
 
 `projectSource` says where the project id came from. It matters only to
 Firestore now, since the model calls no longer touch Google Cloud:

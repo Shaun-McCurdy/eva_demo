@@ -1,38 +1,137 @@
 /* ==========================================================================
-   EVA demo — design system
-   Dark, calm, and built so the avatar is the brightest thing on the page.
-   Per-agent colour arrives as --accent, set inline on the stage.
+   EVA demo - design system
+
+   Built on the Enghouse 2026 Brand Design Guide. Dark is the default because
+   the demo's whole character is the avatar glowing on a near-black ground, but
+   the ground is now navy biased toward Corp Dark #003594 rather than an
+   invented near-black, and every accent comes from the brand's 2026 set.
+
+   Three theme layers, in this order:
+     :root                                     complete DARK palette (default)
+     @media (prefers-color-scheme: light)      first visit on a light OS
+     :root[data-theme="light"]                 an explicit choice wins
+
+   Every colour is a token defined in all layers. Nothing below may hardcode a
+   colour that only works on one ground -- that is the classic bug where half
+   the page inverts and the other half does not.
+
+   Per-agent colour still arrives as --accent, set inline on the stage.
    ========================================================================== */
 
 :root {
-  --bg: #05080f;
-  --bg-raised: #0b111d;
+  /* ---- brand constants (identical in both themes) --------------------- */
+  --brand-corp-dark: #003594;
+  --brand-corp-light: #71b2c9;
+  --brand-silver: #f8faf9;
+  --brand-grey: #414042;
+  --brand-blue: #0bacf4;
+  --brand-green: #0dc935;
+  --brand-orange: #ef6d2b;
+  --brand-violet: #8c5ca4;
+  --brand-rose: #ff5273;
+  --brand-yellow: #dde20a;
+
+  /* ---- dark theme ------------------------------------------------------ */
+  --bg: #060b18;
+  --bg-raised: #0c1526;
   --surface: rgba(255, 255, 255, 0.04);
   --surface-strong: rgba(255, 255, 255, 0.07);
   --border: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.18);
 
-  --text: #eaf0f8;
-  --text-muted: #93a4bd;
-  --text-dim: #64748b;
+  --text: #f8faf9;
+  --text-muted: #9fb3c8;
+  --text-dim: #6b7f96;
 
-  --accent: #00a3e0;
+  --accent: var(--brand-blue);
   --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
   --accent-line: color-mix(in srgb, var(--accent) 45%, transparent);
+  /* The accent as *foreground*. On the dark ground the brand accent is already
+     legible, so no darkening. On Silver every bright brand accent lands at
+     2.1-2.9 against the ground, under the 3.0 UI minimum, so the light theme
+     mixes it 65% toward black -- which clears 4.5 for all five while keeping
+     the hue that identifies the agent. */
+  --ink-mix: 100%;
+  --accent-ink: color-mix(in srgb, var(--accent) var(--ink-mix), black);
+
+  /* The avatar's second ring, and whether its glow composites additively.
+     On a dark ground additive light is what makes it read; on a light one it
+     blows out to white, so the light theme flips both. */
+  --avatar-visitor: #cbd5e1;
+  --avatar-blend: lighter;
+  --avatar-ink: #ffffff;
+  --particle-alpha: 0.33;
 
   --danger: #f26d6d;
-  --success: #4ade80;
-  --warn: #fbbf24;
+  --success: var(--brand-green);
+  --warn: var(--brand-yellow);
 
   --radius-sm: 10px;
   --radius: 16px;
   --radius-lg: 24px;
 
   --shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.8);
-  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+
+  /* Poppins is the guide's Website/Digital face: 700 headings, 500 subheads
+     and controls, 300 body. */
+  --font: "Poppins", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
+
+/* ---- light theme tokens, shared by the media query and the explicit stamp -
+   Bright Blue is too light to carry text on Silver, so the accent becomes Corp
+   Dark and the brand blue is demoted to a highlight. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f8faf9;
+    --bg-raised: #ffffff;
+    --surface: rgba(0, 53, 148, 0.04);
+    --surface-strong: rgba(0, 53, 148, 0.08);
+    --border: rgba(65, 64, 66, 0.16);
+    --border-strong: rgba(65, 64, 66, 0.32);
+
+    --text: #414042;
+    --text-muted: #5a5f6b;
+    --text-dim: #7c8896;
+
+    --accent: var(--brand-corp-dark);
+    --ink-mix: 65%;
+
+    --avatar-visitor: #6b7f96;
+    --avatar-blend: source-over;
+    --avatar-ink: #003594;
+    --particle-alpha: 0.5;
+
+    --shadow: 0 20px 50px -24px rgba(0, 53, 148, 0.35);
+  }
+}
+
+:root[data-theme="light"] {
+  --bg: #f8faf9;
+  --bg-raised: #ffffff;
+  --surface: rgba(0, 53, 148, 0.04);
+  --surface-strong: rgba(0, 53, 148, 0.08);
+  --border: rgba(65, 64, 66, 0.16);
+  --border-strong: rgba(65, 64, 66, 0.32);
+
+  --text: #414042;
+  --text-muted: #5a5f6b;
+  --text-dim: #7c8896;
+
+  --accent: var(--brand-corp-dark);
+  --ink-mix: 65%;
+
+  --avatar-visitor: #6b7f96;
+  --avatar-blend: source-over;
+  --avatar-ink: #003594;
+  --particle-alpha: 0.5;
+
+  --shadow: 0 20px 50px -24px rgba(0, 53, 148, 0.35);
+}
+
+/* Wherever a per-agent --accent is set inline, re-derive the ink from it. */
+.stage, .agent-card { --accent-ink: color-mix(in srgb, var(--accent) var(--ink-mix), black); }
 
 * { box-sizing: border-box; }
 
@@ -49,12 +148,12 @@ body {
   overflow-x: hidden;
 }
 
-h1, h2, h3, h4 { margin: 0; font-weight: 600; line-height: 1.2; letter-spacing: -0.02em; }
+h1, h2, h3, h4 { margin: 0; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; }
 p { margin: 0; }
 a { color: inherit; text-decoration: none; }
 button, input, textarea, select { font: inherit; color: inherit; }
 
-::selection { background: var(--accent); color: #04070d; }
+::selection { background: var(--accent); color: var(--bg); }
 
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -107,8 +206,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 0.7rem; font-weight: 600; letter-spacing: -0.01em; }
 .brand-mark {
   width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
-  background: linear-gradient(140deg, #4fd1ff, #0071b8);
-  color: #04070d; font-weight: 700; font-size: 0.85rem;
+  /* Solid Corp Dark rather than a gradient: the bright end of the old gradient
+     carried Silver at only 2.44. The guide sanctions monotone blue, and this
+     holds in both themes because it is a fill, not a ground. */
+  background: var(--brand-corp-dark);
+  color: var(--brand-silver); font-weight: 700; font-size: 0.85rem;
 }
 .brand-sub { color: var(--text-dim); font-weight: 400; font-size: 0.9rem; }
 
@@ -135,7 +237,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn-primary {
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 92%, white), var(--accent));
   border-color: transparent;
-  color: #04070d;
+  color: var(--bg);
   font-weight: 600;
   box-shadow: 0 10px 30px -12px var(--accent);
 }
@@ -153,6 +255,22 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn-lg { padding: 0.85rem 1.6rem; font-size: 1rem; }
 .btn-sm { padding: 0.42rem 0.8rem; font-size: 0.85rem; }
 
+/* Square so the icon sits centred rather than in a pill sized for text. */
+.theme-toggle { padding: 0.42rem; width: 34px; height: 34px; }
+
+/* Microsoft's mark keeps its own colours, so the button cannot tint it. */
+.sso-btn { width: 100%; gap: 0.6rem; margin-bottom: 1.1rem; }
+
+/* "or" divider between the two sign-in routes. */
+.or-rule {
+  display: flex; align-items: center; gap: 0.75rem;
+  margin: 0 0 1.1rem; color: var(--text-dim); font-size: 0.8rem;
+}
+.or-rule::before, .or-rule::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+}
+.theme-toggle svg { display: block; }
+
 /* ---- Hero -------------------------------------------------------------- */
 
 .hero { padding: clamp(3.5rem, 9vw, 7rem) 0 clamp(2.5rem, 5vw, 4rem); text-align: center; }
@@ -163,7 +281,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border-radius: 999px;
   border: 1px solid var(--accent-line);
   background: var(--accent-soft);
-  color: color-mix(in srgb, var(--accent) 60%, white);
+  color: color-mix(in srgb, var(--accent-ink) 60%, var(--text));
   font-size: 0.8rem; font-weight: 500; letter-spacing: 0.02em;
   margin-bottom: 1.5rem;
 }
@@ -231,14 +349,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 .agent-card .vertical {
   font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.09em;
-  color: var(--accent); font-weight: 600;
+  color: var(--accent-ink); font-weight: 600;
 }
 .agent-card h3 { font-size: 1.15rem; }
 .agent-card .tagline { color: var(--text); font-size: 0.95rem; }
 .agent-card .blurb { color: var(--text-dim); font-size: 0.88rem; font-weight: 300; }
 .agent-card .go {
   margin-top: auto; padding-top: 0.6rem;
-  color: var(--accent); font-size: 0.88rem; font-weight: 500;
+  color: var(--accent-ink); font-size: 0.88rem; font-weight: 500;
   display: inline-flex; align-items: center; gap: 0.4rem;
 }
 .agent-card:hover .go .arrow { transform: translateX(3px); }
@@ -316,7 +434,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .icon-btn:hover:not(:disabled) { background: var(--surface-strong); border-color: var(--border-strong); }
 .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.icon-btn[data-active="true"] { background: var(--accent); border-color: transparent; color: #04070d; }
+.icon-btn[data-active="true"] { background: var(--accent); border-color: transparent; color: var(--bg); }
 .icon-btn[data-danger="true"] { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
 
 /* ---- Avatar ------------------------------------------------------------ */
@@ -405,7 +523,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .notice.info {
   border-color: var(--accent-line);
   background: var(--accent-soft);
-  color: color-mix(in srgb, var(--accent) 55%, white);
+  color: color-mix(in srgb, var(--accent-ink) 55%, var(--text));
 }
 .notice.ok {
   border-color: color-mix(in srgb, var(--success) 35%, transparent);
@@ -503,7 +621,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
   border: 1px dashed var(--accent-line); background: var(--accent-soft);
   font-size: 0.85rem;
 }
-.live-url code { font-family: var(--mono); color: color-mix(in srgb, var(--accent) 55%, white); word-break: break-all; }
+.live-url code { font-family: var(--mono); color: color-mix(in srgb, var(--accent-ink) 55%, var(--text)); word-break: break-all; }
 
 .readonly-note {
   padding: 0.7rem 0.95rem; margin-bottom: 1.2rem; border-radius: var(--radius-sm);

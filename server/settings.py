@@ -115,10 +115,39 @@ class Settings:
     FIRESTORE_DATABASE = os.environ.get("FIRESTORE_DATABASE", "(default)").strip()
 
     # ---- Sales-engineer studio auth -----------------------------------
+    # Microsoft 365 is the front door. Everyone in the tenant may sign in; the
+    # tenant id is the only membership check, which is a deliberate choice for
+    # an internal demo tool.
+    MS_TENANT_ID = os.environ.get("MS_TENANT_ID", "").strip()
+    MS_CLIENT_ID = os.environ.get("MS_CLIENT_ID", "").strip()
+    MS_CLIENT_SECRET = os.environ.get("MS_CLIENT_SECRET", "").strip()
+    # Must match a redirect URI registered on the app exactly. Left empty it is
+    # derived from the incoming request, which is right for local runs and
+    # wrong the moment anything sits in front of Cloud Run.
+    MS_REDIRECT_URI = os.environ.get("MS_REDIRECT_URI", "").strip()
+
+    # The shared password, kept as break-glass while SSO beds in. Turn it off
+    # once SSO is proven and the studio has exactly one way in.
+    STUDIO_PASSWORD_FALLBACK = _bool("STUDIO_PASSWORD_FALLBACK", True)
     # Prefer STUDIO_PASSWORD_HASH (scrypt, produced by `python server/security.py hash`).
     # STUDIO_PASSWORD is accepted for quick local runs only.
     STUDIO_PASSWORD_HASH = os.environ.get("STUDIO_PASSWORD_HASH", "").strip()
     STUDIO_PASSWORD = os.environ.get("STUDIO_PASSWORD", "").strip()
+
+    @property
+    def sso_configured(self) -> bool:
+        return bool(self.MS_TENANT_ID and self.MS_CLIENT_ID and self.MS_CLIENT_SECRET)
+
+    @property
+    def authority(self) -> str:
+        return f"https://login.microsoftonline.com/{self.MS_TENANT_ID}"
+
+    @property
+    def password_enabled(self) -> bool:
+        """The password path is only live if it is both configured and allowed."""
+        return self.STUDIO_PASSWORD_FALLBACK and bool(
+            self.STUDIO_PASSWORD_HASH or self.STUDIO_PASSWORD
+        )
     # Used to sign the studio session cookie. Set this in production, otherwise
     # every container restart (and every Cloud Run instance) invalidates logins.
     SESSION_SECRET = os.environ.get("SESSION_SECRET", "").strip() or secrets.token_hex(32)
@@ -159,10 +188,17 @@ class Settings:
                 "GOOGLE_CLOUD_PROJECT (Cloud Run does not set it for you) or "
                 "attach credentials that name a project."
             )
-        if not self.STUDIO_PASSWORD_HASH and not self.STUDIO_PASSWORD:
+        if not self.sso_configured and not self.password_enabled:
             problems.append(
-                "Neither STUDIO_PASSWORD_HASH nor STUDIO_PASSWORD is set -- "
-                "the sales-engineer studio will refuse every login."
+                "No way into the studio: Microsoft SSO is not configured "
+                "(MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET) and the "
+                "password fallback is off or unset."
+            )
+        if self.sso_configured and not self.MS_REDIRECT_URI:
+            problems.append(
+                "MS_REDIRECT_URI is not set -- the redirect will be derived from "
+                "the request, which breaks behind a proxy and must match the URI "
+                "registered on the app exactly."
             )
         if not os.environ.get("SESSION_SECRET"):
             problems.append(
