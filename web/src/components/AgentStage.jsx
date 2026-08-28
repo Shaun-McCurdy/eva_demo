@@ -165,7 +165,13 @@ export default function AgentStage() {
    * present EVA's scripted greeting is suppressed, so she answers the question
    * instead of talking past it.
    */
-  const start = useCallback(async (opening = null) => {
+  const start = useCallback(async (openingArg = null) => {
+    // Only a real string counts as an opening message. Wired directly to an
+    // onClick this would otherwise receive a MouseEvent, suppress the greeting,
+    // and then fail trying to serialise a DOM node onto the wire.
+    const opening =
+      typeof openingArg === "string" && openingArg.trim() ? openingArg : null;
+
     setError("");
     setPhase("connecting");
     setTurns([]);
@@ -356,7 +362,7 @@ export default function AgentStage() {
               {!live ? (
                 <button
                   className="btn btn-primary btn-lg"
-                  onClick={start}
+                  onClick={() => start()}
                   disabled={phase === "connecting"}
                 >
                   {phase === "connecting" ? (
