@@ -2,14 +2,42 @@
  * Audio and video capture/playback for the EVA live session.
  *
  * Derived from Google's media-utils sample. Added on top: RMS level metering on
- * both the microphone and the playback path, which is what drives the avatar's
- * halo, and a speaking flag so the UI knows who currently has the floor.
+ * both the microphone and the playback path, plus per-voice spectra for the
+ * avatar's two rings, and a speaking flag so the UI knows who has the floor.
  */
+
+// Bins the avatar draws per voice: enough to see consonants land, few enough
+// to stay legible at 200px.
+export const SPECTRUM_BINS = 56;
 
 // Exported: the Live API needs this rate declared in the audio MIME type,
 // and a mismatch there produces garbled audio rather than an error.
 export const CAPTURE_RATE = 16000; // Gemini expects 16 kHz in
 const PLAYBACK_RATE = 24000; // Gemini sends 24 kHz out
+
+/**
+ * Reduce an AnalyserNode's FFT to `out.length` bins in 0..1.
+ *
+ * Only the low 40% of the transform is read: above roughly 8 kHz there is
+ * nothing in a speech signal worth drawing, and including it would spend most
+ * of the visualiser's width on a flat line.
+ */
+export function readSpectrum(analyser, bytes, out) {
+  if (!analyser) { out.fill(0); return 0; }
+  analyser.getByteFrequencyData(bytes);
+  const span = Math.floor(bytes.length * 0.4);
+  let sum = 0;
+  for (let i = 0; i < out.length; i++) {
+    const a = Math.floor((i / out.length) * span);
+    const b = Math.max(a + 1, Math.floor(((i + 1) / out.length) * span));
+    let peak = 0;
+    for (let j = a; j < b; j++) if (bytes[j] > peak) peak = bytes[j];
+    out[i] = peak / 255;
+    sum += out[i];
+  }
+  return Math.min(1, (sum / out.length) * 2.2);
+}
+
 
 function rms(float32) {
   let sum = 0;
@@ -46,6 +74,15 @@ export class MicStreamer {
     this.mediaStream = null;
     this.streaming = false;
     this.muted = false;
+    this.analyser = null;
+    this.freqBytes = null;
+    this.scratch = null;
+  }
+
+  /** Fills `out` with the visitor's spectrum and returns their level, 0..1. */
+  spectrum(out) {
+    if (this.muted) { out.fill(0); return 0; }
+    return readSpectrum(this.analyser, this.freqBytes, out);
   }
 
   async start(deviceId = null) {
@@ -70,19 +107,31 @@ export class MicStreamer {
       "audio-capture-processor"
     );
 
+    // The visitor's side gets the same analyser treatment as playback, so both
+    // halves of the avatar are measured identically. Taking level from here
+    // rather than from the raw worklet buffer also puts both sides on one
+    // smoothing constant, instead of one gliding while the other jitters.
+    this.analyser = this.audioContext.createAnalyser();
+    this.analyser.fftSize = 512;
+    this.analyser.smoothingTimeConstant = 0.6;
+    this.freqBytes = new Uint8Array(this.analyser.frequencyBinCount);
+    this.scratch = new Float32Array(SPECTRUM_BINS);
+
     this.worklet.port.onmessage = (event) => {
       if (!this.streaming || event.data.type !== "audio") return;
       const input = event.data.data;
-      this.onLevel(rms(input));
+      this.onLevel(
+        this.muted ? 0 : readSpectrum(this.analyser, this.freqBytes, this.scratch)
+      );
       if (this.muted) return;
       if (this.client && this.client.connected) {
         this.client.sendAudioChunk(bufferToBase64(toPCM16(input)));
       }
     };
 
-    this.audioContext
-      .createMediaStreamSource(this.mediaStream)
-      .connect(this.worklet);
+    const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+    source.connect(this.worklet);
+    source.connect(this.analyser);
 
     this.streaming = true;
     return true;
@@ -98,6 +147,7 @@ export class MicStreamer {
 
   stop() {
     this.streaming = false;
+    this.analyser = null;
     if (this.worklet) {
       this.worklet.disconnect();
       this.worklet.port.close();
@@ -144,12 +194,18 @@ export class VoicePlayer {
     this.analyser.fftSize = 512;
     this.analyser.smoothingTimeConstant = 0.6;
     this.sampleData = new Uint8Array(this.analyser.fftSize);
+    this.freqBytes = new Uint8Array(this.analyser.frequencyBinCount);
 
     this.worklet.connect(this.gain);
     this.gain.connect(this.analyser);
     this.gain.connect(this.audioContext.destination);
 
     this.ready = true;
+  }
+
+  /** Fills `out` with EVA's spectrum and returns her level, 0..1. */
+  spectrum(out) {
+    return readSpectrum(this.analyser, this.freqBytes, out);
   }
 
   /** 0..1 RMS of what is coming out of the speaker right now. */

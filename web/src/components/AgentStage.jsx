@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import Avatar from "./Avatar";
 import Transcript from "./Transcript";
@@ -18,7 +18,6 @@ export default function AgentStage() {
   const [error, setError] = useState("");
   const [turns, setTurns] = useState([]);
   const [micLevel, setMicLevel] = useState(0);
-  const [agentLevel, setAgentLevel] = useState(0);
   const [speaking, setSpeaking] = useState(false);
   const [muted, setMuted] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
@@ -28,6 +27,12 @@ export default function AgentStage() {
   const playerRef = useRef(null);
   const cameraRef = useRef(null);
   const rafRef = useRef(null);
+
+  // Stable identity on purpose. The Avatar keys its rAF loop on this, and an
+  // inline object literal would tear the loop down and rebuild it on every
+  // render -- which micLevel triggers several times a second. The refs
+  // themselves never change, so an empty dep list is correct.
+  const audioSources = useMemo(() => ({ player: playerRef, mic: micRef }), []);
   const speakingUntilRef = useRef(0);
 
   // ---- load the agent's public profile ---------------------------------
@@ -89,7 +94,6 @@ export default function AgentStage() {
     clientRef.current?.disconnect();
     clientRef.current = null;
     setMicLevel(0);
-    setAgentLevel(0);
     setSpeaking(false);
     setCameraOn(false);
     setMuted(false);
@@ -178,9 +182,12 @@ export default function AgentStage() {
 
       setPhase("live");
 
+      // Only job left here is deciding when EVA has stopped talking. The
+      // avatar reads the audio graph itself, so this no longer needs to push a
+      // level into state -- which was re-rendering the whole stage 60x a second
+      // to feed a prop nothing consumed any more.
       const tick = () => {
         const level = playerRef.current?.level() ?? 0;
-        setAgentLevel(level);
         if (performance.now() > speakingUntilRef.current && level < 0.01) {
           setSpeaking(false);
         }
@@ -281,7 +288,7 @@ export default function AgentStage() {
         <div className="stage-body">
           <section className="avatar-panel">
             <Avatar
-              agentLevel={agentLevel}
+              sources={audioSources}
               micLevel={micLevel}
               speaking={speaking}
               listening={live && !muted}
