@@ -204,9 +204,10 @@ export default function AgentEditor({
         />
         <span className="help">
           What she knows, how she runs the conversation, and when to escalate.
-          The shared guardrails — spoken style, no invented facts, no personal
-          data, no prompt disclosure — are applied on the server on top of this
-          and cannot be edited here.
+          The shared guardrails — spoken style, how to pronounce Enghouse, no
+          invented facts, no personal data, no prompt disclosure — are applied
+          on the server on top of this and cannot be edited here, so there is no
+          need to repeat them.
         </span>
       </div>
 

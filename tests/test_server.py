@@ -145,6 +145,19 @@ check("both transcriptions are requested",
       "input_audio_transcription" in setup and "output_audio_transcription" in setup)
 
 instruction = setup["system_instruction"]["parts"][0]["text"]
+
+# The company name is the one word a sales demo cannot get wrong, and the
+# guidance lives in BASE_GUARDRAILS so it reaches studio variants too. Assert it
+# survives on a *variant*, which is where a future edit would most likely drop it.
+check("pronunciation guidance reaches every agent",
+      "ENJ-house" in instruction)
+check("it explains the sound rather than just respelling it",
+      "engine" in instruction)
+_variant_instruction = system_instruction_for(
+    {"goal": "Sell things.", "instructions": "Be brief."}
+)
+check("pronunciation guidance reaches studio variants as well",
+      "ENJ-house" in _variant_instruction)
 check("guardrails are present in the system instruction",
       BASE_GUARDRAILS.strip()[:80] in instruction)
 check("guardrails come before the agent's own instructions",
