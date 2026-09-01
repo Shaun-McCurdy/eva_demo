@@ -51,6 +51,10 @@ def _resolve_project() -> tuple[str, str]:
 # Vertex's {region}-aiplatform.googleapis.com.
 API_HOST = "generativelanguage.googleapis.com"
 
+# Not every model accepts every level -- gemini-3.1-flash-live-preview takes all
+# four, others take a subset -- so this is the vocabulary, not a guarantee.
+THINKING_LEVELS = ("minimal", "low", "medium", "high")
+
 
 def _bool(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
@@ -74,11 +78,25 @@ class Settings:
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
     MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-live-preview").strip()
 
+    # How hard the model thinks before answering. Pinned rather than inherited:
+    # the default is the model's to change, and on a voice demo the difference
+    # between levels is audible as latency before every reply.
+    #
+    # Set empty to send nothing at all and fall back to whatever the model does
+    # on its own -- which is also the escape hatch if a future model rejects the
+    # field, since it can be cleared with an env var and no rebuild.
+    THINKING_LEVEL = os.environ.get("GEMINI_THINKING_LEVEL", "medium").strip().lower()
+
     # ---- Google Cloud --------------------------------------------------
     # Firestore is the only thing left that needs a project; the model calls do
     # not touch GCP. PROJECT_SOURCE records which mechanism supplied the id, so
     # a misconfigured deploy is one /healthz away from being obvious.
     PROJECT_ID, PROJECT_SOURCE = _resolve_project()
+
+    @property
+    def thinking_level(self) -> str:
+        """The configured level, or "" when thinking config should be omitted."""
+        return self.THINKING_LEVEL if self.THINKING_LEVEL in THINKING_LEVELS else ""
 
     @property
     def service_url(self) -> str:
@@ -176,6 +194,12 @@ class Settings:
 
     def validate(self) -> list[str]:
         problems = []
+        if self.THINKING_LEVEL and not self.thinking_level:
+            problems.append(
+                "GEMINI_THINKING_LEVEL=%r is not one of %s -- no thinking config "
+                "will be sent and the model's own default applies."
+                % (self.THINKING_LEVEL, ", ".join(THINKING_LEVELS))
+            )
         if not self.GEMINI_API_KEY:
             problems.append(
                 "GEMINI_API_KEY is not set -- the Live API cannot authenticate, so "

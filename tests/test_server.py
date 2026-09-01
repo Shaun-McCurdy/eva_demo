@@ -59,7 +59,7 @@ import agents as agents_mod  # noqa: E402
 import live_proxy  # noqa: E402
 import security  # noqa: E402
 from agents import AgentError, AgentRegistry, full_view, public_view, system_instruction_for  # noqa: E402
-from personas import BASE_GUARDRAILS  # noqa: E402
+from personas import BASE_GUARDRAILS, OPENING_TRIGGER  # noqa: E402
 from store import JsonFileStore  # noqa: E402
 
 PASSED = []
@@ -141,23 +141,61 @@ check("affective dialog is not sent (unsupported on 3.1 Flash Live)",
       "enable_affective_dialog" not in setup["generation_config"])
 check("proactivity is not sent (unsupported on 3.1 Flash Live)",
       "proactivity" not in setup)
+# Thinking level is pinned rather than inherited, and the placement inside
+# generation_config is inferred from the reference rather than copied from a
+# published example -- so assert the shape, and assert it can be turned off.
+_gen = setup["generation_config"]
+check("thinking level is sent, not left to the model default",
+      _gen.get("thinking_config", {}).get("thinking_level") == live_proxy.settings.thinking_level)
+check("it sits inside generation_config, not at the top of setup",
+      "thinking_config" not in setup)
+
+_saved = live_proxy.settings.THINKING_LEVEL
+live_proxy.settings.THINKING_LEVEL = ""
+check("an empty setting omits the block entirely",
+      "thinking_config" not in live_proxy.build_setup_message(banking)["setup"]["generation_config"])
+live_proxy.settings.THINKING_LEVEL = "enthusiastically"
+check("a bogus level is refused rather than forwarded",
+      "thinking_config" not in live_proxy.build_setup_message(banking)["setup"]["generation_config"])
+check("and validate() says why",
+      any("GEMINI_THINKING_LEVEL" in p for p in live_proxy.settings.validate()))
+live_proxy.settings.THINKING_LEVEL = "high"
+check("a valid level round-trips",
+      live_proxy.build_setup_message(banking)["setup"]["generation_config"]
+        ["thinking_config"]["thinking_level"] == "high")
+live_proxy.settings.THINKING_LEVEL = _saved
+
+# gemini-3.1-flash-live-preview only accepts client_content for seeding initial
+# history, and then only with a config flag this app does not set. Both text
+# paths must therefore go out as realtime_input.
+_opening = live_proxy.opening_turn()
+check("the opening turn is realtime_input, not client_content",
+      "realtime_input" in _opening and "client_content" not in _opening)
+check("and it still carries the trigger text",
+      _opening["realtime_input"]["text"] == OPENING_TRIGGER)
+
 check("both transcriptions are requested",
       "input_audio_transcription" in setup and "output_audio_transcription" in setup)
 
 instruction = setup["system_instruction"]["parts"][0]["text"]
 
 # The company name is the one word a sales demo cannot get wrong, and the
-# guidance lives in BASE_GUARDRAILS so it reaches studio variants too. Assert it
-# survives on a *variant*, which is where a future edit would most likely drop it.
+# guidance lives in BASE_GUARDRAILS so it reaches studio variants too.
+#
+# Assert the contract, not the wording: the section exists, it anchors the sound
+# to a real word rather than only respelling it, and it survives on a *variant*,
+# which is where a future edit would most likely drop it. Pinning the exact
+# phrasing would just break every time someone tunes the prompt, which is
+# exactly the sort of edit this file should not be fighting.
 check("pronunciation guidance reaches every agent",
-      "ENJ-house" in instruction)
-check("it explains the sound rather than just respelling it",
+      "Saying the company name" in instruction)
+check("it anchors the sound to a word rather than only respelling it",
       "engine" in instruction)
 _variant_instruction = system_instruction_for(
     {"goal": "Sell things.", "instructions": "Be brief."}
 )
 check("pronunciation guidance reaches studio variants as well",
-      "ENJ-house" in _variant_instruction)
+      "Saying the company name" in _variant_instruction)
 check("guardrails are present in the system instruction",
       BASE_GUARDRAILS.strip()[:80] in instruction)
 check("guardrails come before the agent's own instructions",

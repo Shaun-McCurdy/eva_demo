@@ -134,17 +134,34 @@ def build_setup_message(agent: dict[str, Any]) -> dict[str, Any]:
         # timings tuned for the 2.5 native-audio model. Defaults are the right
         # starting point; re-tune deliberately if the turn-taking feels wrong.
     }
+
+    # Nested inside generation_config rather than at the top of setup: the Live
+    # API reference enumerates BidiGenerateContentSetup's fields and thinking is
+    # not among them, while generation_config is a standard GenerationConfig and
+    # the unsupported-field list does not exclude thinking. No published example
+    # shows a raw Live setup frame carrying it, so if this placement is wrong the
+    # symptom is a 1007 close naming the field -- clear GEMINI_THINKING_LEVEL to
+    # drop the block without a rebuild.
+    if settings.thinking_level:
+        setup["generation_config"]["thinking_config"] = {
+            "thinking_level": settings.thinking_level
+        }
+
     return {"setup": setup}
 
 
 def opening_turn() -> dict[str, Any]:
-    """Nudge the agent to speak first, so the visitor is greeted on connect."""
-    return {
-        "client_content": {
-            "turns": [{"role": "user", "parts": [{"text": OPENING_TRIGGER}]}],
-            "turn_complete": True,
-        }
-    }
+    """Nudge the agent to speak first, so the visitor is greeted on connect.
+
+    Sent as realtime_input rather than client_content. On
+    gemini-3.1-flash-live-preview client_content is documented as seeding
+    initial history only, and even that requires initial_history_in_client_content
+    in the session config -- which this app does not set. It currently works
+    anyway, but the greeting is the single most visible moment of the demo and
+    resting it on undocumented leniency in a preview model is not a bet worth
+    holding.
+    """
+    return {"realtime_input": {"text": OPENING_TRIGGER}}
 
 
 # --------------------------------------------------------------------------

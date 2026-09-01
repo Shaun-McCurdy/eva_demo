@@ -182,12 +182,10 @@ export class EvaLiveClient {
   }
 
   sendText(text) {
-    this.#send({
-      client_content: {
-        turns: [{ role: "user", parts: [{ text }] }],
-        turn_complete: true,
-      },
-    });
+    // realtime_input, not client_content. On gemini-3.1-flash-live-preview
+    // client_content only seeds initial history; anything typed after the first
+    // model turn has to arrive this way or it is simply not heard.
+    this.#send({ realtime_input: { text } });
   }
 
   disconnect() {

@@ -34,9 +34,11 @@ COPY --from=web /build/dist ./web/dist
 # settings.py's metadata-server fallback is a safety net, not configuration.
 ARG GOOGLE_CLOUD_PROJECT=virtual-agent-demos
 ARG GEMINI_MODEL=gemini-3.1-flash-live-preview
+ARG GEMINI_THINKING_LEVEL=medium
 
 ENV GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT} \
-    GEMINI_MODEL=${GEMINI_MODEL}
+    GEMINI_MODEL=${GEMINI_MODEL} \
+    GEMINI_THINKING_LEVEL=${GEMINI_THINKING_LEVEL}
 
 # Cloud Run injects PORT; settings.py reads it.
 ENV PORT=8080 \
