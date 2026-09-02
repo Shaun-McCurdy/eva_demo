@@ -36,9 +36,26 @@ ARG GOOGLE_CLOUD_PROJECT=virtual-agent-demos
 ARG GEMINI_MODEL=gemini-3.1-flash-live-preview
 ARG GEMINI_THINKING_LEVEL=medium
 
+# The knowledge sources a studio user may point an agent at. Format, one record
+# per `;`:
+#
+#     key | Label shown in the studio | engine:<engine-id> [| location]
+#
+# Target an *engine*, never a bare data store: search edition is set at the
+# engine level, and a data store queried directly runs at STANDARD tier, which
+# refuses extractive answers and website search with a 400.
+#
+# This is an allowlist, and that is the point. The project is a shared demo
+# sandbox holding other customers' data stores -- product catalogues, a
+# hospital demo, a people directory. Anything not named here is unreachable, so
+# a public Enghouse-branded demo URL cannot be aimed at someone else's content.
+# Adding a source is a deliberate server-side change, not a studio field.
+ARG VERTEX_DATA_STORES="eva-website | EVA Website Data | engine:eva-website-data_1788357759334"
+
 ENV GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT} \
     GEMINI_MODEL=${GEMINI_MODEL} \
-    GEMINI_THINKING_LEVEL=${GEMINI_THINKING_LEVEL}
+    GEMINI_THINKING_LEVEL=${GEMINI_THINKING_LEVEL} \
+    VERTEX_DATA_STORES="${VERTEX_DATA_STORES}"
 
 # Cloud Run injects PORT; settings.py reads it.
 ENV PORT=8080 \

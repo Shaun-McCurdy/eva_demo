@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 
+import retrieval
 import security
 from agents import AgentError, AgentRegistry, VOICES, full_view, public_view
 from live_proxy import (
@@ -40,6 +41,7 @@ from live_proxy import (
     opening_turn,
     origin_allowed,
     sanitize_client_frame,
+    tool_response_frame,
 )
 from settings import settings
 from store import build_store
@@ -92,6 +94,7 @@ async def lifespan(app: FastAPI):
         settings.PROJECT_SOURCE,
         settings.STORE_BACKEND,
     )
+    log.info("knowledge sources | %s", retrieval.describe())
     yield
 
 
@@ -120,11 +123,18 @@ async def healthz():
     # apiKey gates every live session; project and projectSource only matter to
     # Firestore now, and projectSource is the one thing you want to see when a
     # deploy comes up with no project.
+    # dataStores is a count, not a list: it is the one number that tells you
+    # whether VERTEX_DATA_STORES actually reached the container. This project
+    # deploys through a Cloud Build trigger that drops --set-env-vars, so a
+    # config that "should" be set arriving as zero is a real failure mode, and
+    # a silently source-less agent looks identical to a working one until a
+    # customer asks it something.
     return {
         "ok": True,
         "apiKey": bool(settings.GEMINI_API_KEY),
         "project": bool(settings.PROJECT_ID),
         "projectSource": settings.PROJECT_SOURCE,
+        "dataStores": len(retrieval.catalogue),
     }
 
 
@@ -336,6 +346,11 @@ async def studio_list(session: dict = Depends(current_session)):
     return {
         "agents": [full_view(a) for a in registry.all_agents()],
         "voices": VOICES,
+        # Curated labels, not whatever Discovery Engine reports: display names
+        # there are not unique -- nine stores in this project are called
+        # "gcs_store" -- so an auto-populated picker would be unusable.
+        "dataStores": retrieval.catalogue.public_entries(),
+        "maxDataStores": settings.MAX_DATA_STORES_PER_AGENT,
     }
 
 
@@ -404,41 +419,134 @@ async def _pump_client_to_model(ws: WebSocket, upstream, stats: dict) -> None:
         await upstream.send(safe)
 
 
+async def _run_tool_call(
+    ws: WebSocket, upstream, agent: dict, tool_call: dict, stats: dict
+) -> None:
+    """Execute a model tool call and answer it upstream.
+
+    Runs as its own task so the receive loop keeps pumping audio while the
+    search is in flight. The model is blocked either way -- Gemini 3.1 Flash
+    Live has no asynchronous function calling -- but blocking the pump as well
+    would also stall the visitor's own audio reaching Google.
+
+    Every path must send a response. A tool call left unanswered hangs the turn
+    permanently: the visitor gets silence and no error, which is the worst of
+    the available failure modes.
+    """
+    calls = [c for c in (tool_call.get("functionCalls") or []) if isinstance(c, dict)]
+    if not calls:
+        return
+
+    query = ""
+    for call in calls:
+        args = call.get("args") or {}
+        if isinstance(args, dict) and args.get("query"):
+            query = str(args["query"])
+            break
+
+    stats["tools"] += 1
+    log.info("tool call agent=%s query=%r", agent.get("slug"), query[:120])
+
+    # Tell the page a lookup started, so it can show something rather than
+    # leaving the visitor watching an idle avatar.
+    try:
+        await ws.send_text(json.dumps({"evaTool": {"state": "searching", "query": query}}))
+    except Exception:  # noqa: BLE001
+        pass
+
+    passages = []
+    try:
+        passages = await retrieval.search(agent.get("dataStores") or [], query)
+    except Exception:  # noqa: BLE001
+        log.exception("tool call failed agent=%s", agent.get("slug"))
+
+    payload = retrieval.tool_response_payload(passages)
+    try:
+        await upstream.send(json.dumps(tool_response_frame(calls, payload)))
+    except Exception:  # noqa: BLE001
+        log.exception("could not deliver tool response agent=%s", agent.get("slug"))
+        return
+
+    try:
+        await ws.send_text(
+            json.dumps(
+                {
+                    "evaTool": {
+                        "state": "done",
+                        "query": query,
+                        "sources": [p.for_client() for p in passages],
+                    }
+                }
+            )
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def _pump_model_to_client(
-    ws: WebSocket, upstream, stats: dict, greet: bool = True
+    ws: WebSocket, upstream, agent: dict, stats: dict, greet: bool = True
 ) -> None:
     greeted = False
-    async for raw in upstream:
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8", "replace")
-        stats["received"] += 1
-        await ws.send_text(raw)
+    pending: set[asyncio.Task] = set()
+    try:
+        async for raw in upstream:
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", "replace")
+            stats["received"] += 1
+            await ws.send_text(raw)
 
-        # Substring guard before parsing: audio frames are large base64 and
-        # decoding every one of them to find two rare control messages is not
-        # worth the CPU on a shared instance.
-        if greeted and "goAway" not in raw:
-            continue
-        try:
-            frame = json.loads(raw)
-        except (json.JSONDecodeError, AttributeError):
-            continue
-        if not isinstance(frame, dict):
-            continue
-        if not greeted and frame.get("setupComplete") is not None:
-            # Flip this either way: it also stops us parsing every audio frame
-            # from here on, whether or not a greeting was sent.
-            greeted = True
-            if greet:
-                await upstream.send(json.dumps(opening_turn()))
-        going = frame.get("goAway")
-        if going is not None:
-            # Google warns before it ends a connection. Unlogged, the session
-            # just stops and is indistinguishable from a crash.
-            log.warning(
-                "upstream goAway timeLeft=%s -- connection is being ended",
-                going.get("timeLeft") if isinstance(going, dict) else going,
-            )
+            # Substring guard before parsing: audio frames are large base64 and
+            # decoding every one of them to find a few rare control messages is
+            # not worth the CPU on a shared instance. toolCall MUST be in this
+            # list -- without it every tool call is silently skipped and the
+            # agent simply never looks anything up.
+            if greeted and not any(
+                marker in raw for marker in ("goAway", "toolCall")
+            ):
+                continue
+            try:
+                frame = json.loads(raw)
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            if not isinstance(frame, dict):
+                continue
+            if not greeted and frame.get("setupComplete") is not None:
+                # Flip this either way: it also stops us parsing every audio frame
+                # from here on, whether or not a greeting was sent.
+                greeted = True
+                if greet:
+                    await upstream.send(json.dumps(opening_turn()))
+
+            tool_call = frame.get("toolCall")
+            if tool_call is not None:
+                task = asyncio.create_task(
+                    _run_tool_call(ws, upstream, agent, tool_call, stats)
+                )
+                pending.add(task)
+                task.add_done_callback(pending.discard)
+
+            cancellation = frame.get("toolCallCancellation")
+            if cancellation is not None:
+                # Sent when the visitor interrupts a turn the model was waiting
+                # on. The search is now pointless -- and answering a cancelled
+                # id is an error -- so drop the work.
+                log.info("tool call cancelled ids=%s", cancellation.get("ids"))
+                for task in list(pending):
+                    task.cancel()
+
+            going = frame.get("goAway")
+            if going is not None:
+                # Google warns before it ends a connection. Unlogged, the session
+                # just stops and is indistinguishable from a crash.
+                log.warning(
+                    "upstream goAway timeLeft=%s -- connection is being ended",
+                    going.get("timeLeft") if isinstance(going, dict) else going,
+                )
+    finally:
+        for task in list(pending):
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 @app.websocket("/ws/live")
@@ -450,7 +558,7 @@ async def live_session(ws: WebSocket):
     await ws.accept()
     ip = _client_ip(ws)
 
-    stats = {"sent": 0, "dropped": 0, "received": 0}
+    stats = {"sent": 0, "dropped": 0, "received": 0, "tools": 0}
 
     refusal = await limiter.acquire(ip)
     if refusal:
@@ -503,7 +611,7 @@ async def live_session(ws: WebSocket):
                 tasks = [
                     asyncio.create_task(_pump_client_to_model(ws, upstream, stats)),
                     asyncio.create_task(
-                        _pump_model_to_client(ws, upstream, stats, greet)
+                        _pump_model_to_client(ws, upstream, agent, stats, greet)
                     ),
                 ]
                 done, pending = await asyncio.wait(
@@ -568,11 +676,12 @@ async def live_session(ws: WebSocket):
         # not the model. dropped>0 means frames were filtered by
         # sanitize_client_frame, which is a client/server contract mismatch.
         log.info(
-            "session end ip=%s frames sent=%s dropped=%s received=%s",
+            "session end ip=%s frames sent=%s dropped=%s received=%s tools=%s",
             ip,
             stats.get("sent", 0),
             stats.get("dropped", 0),
             stats.get("received", 0),
+            stats.get("tools", 0),
         )
 
 

@@ -28,16 +28,46 @@ from typing import Any
 
 from agents import system_instruction_for
 from personas import OPENING_TRIGGER
+import retrieval
 from settings import settings
 
+SEARCH_TOOL_NAME = "search_enghouse_knowledge"
+
+# One argument on purpose. Every extra parameter is another thing the model can
+# get wrong while a visitor waits, and which store to search is the server's
+# decision -- it comes from the agent's configuration, never from the model.
+SEARCH_TOOL = {
+    "name": SEARCH_TOOL_NAME,
+    "description": (
+        "Search Enghouse's own product and company material. Use this for any "
+        "specific question about Enghouse products, capabilities, integrations "
+        "or customers. Returns short passages from official Enghouse sources."
+    ),
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "query": {
+                "type": "STRING",
+                "description": (
+                    "What to look up, in natural language. Use the person's own "
+                    "wording where you can."
+                ),
+            }
+        },
+        "required": ["query"],
+    },
+}
+
 # Only these top-level keys are forwarded from browser to Google.
+# Deliberately no tool_response: the server executes every tool call itself and
+# answers upstream directly. Leaving it here would let a visitor forge search
+# results and feed arbitrary text to the model as if it came from an Enghouse
+# source -- the exact injection the retrieval design exists to prevent.
 ALLOWED_CLIENT_KEYS = {
     "realtime_input",
     "realtimeInput",
     "client_content",
     "clientContent",
-    "tool_response",
-    "toolResponse",
 }
 
 CLOSE_POLICY = 1008
@@ -147,7 +177,36 @@ def build_setup_message(agent: dict[str, Any]) -> dict[str, Any]:
             "thinking_level": settings.thinking_level
         }
 
+    # Only declared when the agent actually has a source attached, so an agent
+    # with none produces byte-for-byte the setup frame it did before this
+    # existed. Note the Live API refuses to mix search tools (google_search)
+    # with function declarations in one session -- if grounding with Google
+    # Search is ever added, it cannot coexist with this.
+    if retrieval.catalogue.resolve(agent.get("dataStores") or []):
+        setup["tools"] = [{"function_declarations": [SEARCH_TOOL]}]
+
     return {"setup": setup}
+
+
+def tool_response_frame(function_calls: list[dict], payload: dict) -> dict[str, Any]:
+    """Answer every call in a toolCall frame.
+
+    The id has to be echoed back verbatim: it is how the model matches the
+    response to the call it is blocked on. Answering the wrong id, or dropping
+    one of several, hangs the turn for good.
+    """
+    return {
+        "tool_response": {
+            "function_responses": [
+                {
+                    "id": call.get("id"),
+                    "name": call.get("name") or SEARCH_TOOL_NAME,
+                    "response": payload,
+                }
+                for call in function_calls
+            ]
+        }
+    }
 
 
 def opening_turn() -> dict[str, Any]:

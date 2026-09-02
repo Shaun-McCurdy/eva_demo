@@ -24,8 +24,13 @@ gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
   firestore.googleapis.com \
-  secretmanager.googleapis.com
+  secretmanager.googleapis.com \
+  discoveryengine.googleapis.com
 ```
+
+`discoveryengine` is Vertex AI Search, which backs the knowledge lookups
+configured in step 3b. Leave it out and agents with a knowledge source attached
+still run — they just fail every lookup and tell the visitor they do not know.
 
 ## 2. Create Firestore
 
@@ -51,6 +56,55 @@ SA="eva-demo-sa@$PROJECT_ID.iam.gserviceaccount.com"
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$SA" --role="roles/datastore.user"
 ```
+
+If any agent will use a knowledge source, it also needs read access to Vertex
+AI Search. Viewer is enough — the app only ever issues `:search`, never a write:
+
+```bash
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:$SA" --role="roles/discoveryengine.viewer"
+```
+
+Note this is a *project-level* grant, so the runtime can read every data store
+in the project, not only the Enghouse ones. What stops an agent reaching
+another customer's content is the `VERTEX_DATA_STORES` allowlist in step 3b,
+not IAM. If that distinction ever stops being acceptable, bind the role on the
+individual engines rather than the project.
+
+## 3b. Point the studio at a knowledge source
+
+An agent can look things up mid-conversation in Vertex AI Search. Which sources
+it may reach is decided here, on the server — never in the studio.
+
+The project is a shared demo sandbox holding data stores for many unrelated
+customers. If the studio accepted a raw resource path, anyone with a studio
+login could aim a public, Enghouse-branded demo URL at a hospital demo or
+another customer's product catalogue, and the service account would serve it.
+So the studio only ever picks a key from this list, and nothing else exists as
+far as it is concerned.
+
+`VERTEX_DATA_STORES` is baked into the Dockerfile, one record per `;`:
+
+```
+key | Label shown in the studio | engine:<engine-id> [| location]
+```
+
+Target an **engine**, not a bare data store. Search edition is set at the engine
+level: a data store queried directly runs at STANDARD tier, which refuses
+extractive answers and website search outright with a 400. The engine must be
+Enterprise edition with the LLM add-on — check with:
+
+```bash
+gcloud alpha discovery-engine engines list --location=global
+```
+
+Labels are yours to choose and should be. Display names in Discovery Engine are
+not unique — nine stores in this project are called `gcs_store` — so an
+auto-populated picker would be unusable.
+
+To add a source, edit the `ARG VERTEX_DATA_STORES` line in the Dockerfile and
+redeploy. It is not a secret: it names resources, and reaching them still
+requires the service account's IAM.
 
 ## 4. Create the secrets
 
@@ -149,12 +203,21 @@ successfully, and the studio then has exactly one way in.
 ## 6. Check it
 
 ```bash
-curl -s $URL/healthz            # {"ok":true,"apiKey":true,"project":true,"projectSource":"GOOGLE_CLOUD_PROJECT"}
+curl -s $URL/healthz            # {"ok":true,"apiKey":true,"project":true,"projectSource":"GOOGLE_CLOUD_PROJECT","dataStores":1}
 curl -s $URL/api/agents | head  # five built-in agents
 ```
 
 `apiKey:false` means every live session will be refused — the `--set-secrets`
 above did not land. It reports only whether a key is configured, never its value.
+
+`dataStores` is how many entries parsed out of `VERTEX_DATA_STORES`. A `0` you
+did not expect is the one failure worth checking for deliberately: the studio
+simply shows no sources to pick, agents answer from their instructions alone,
+and **nothing anywhere reports an error**. A working agent and a source-less
+one look identical until a customer asks something it should have known. If it
+reads `0` with the Dockerfile set, either the record is malformed — the
+container logs one `VERTEX_DATA_STORES: skipping ...` line per bad record at
+startup — or the build did not pick up the change.
 
 ```bash
 curl -s $URL/api/studio/auth-methods   # {"sso":true,"password":true}
@@ -219,6 +282,19 @@ neither affective dialog nor proactive audio, and the setup frame in
 `live_proxy.py` was trimmed to match. A model that rejects a field in that frame
 closes the socket rather than failing cleanly, so the close code and reason are
 logged.
+
+**Adding a knowledge source.** Edit `ARG VERTEX_DATA_STORES` in the Dockerfile
+and redeploy, then confirm `dataStores` in `/healthz` went up. The engine has to
+be Enterprise edition; a STANDARD one returns a 400 on every search and the
+agent will say it does not know. A newly created website store also needs time
+to crawl — zero results is usually indexing, not misconfiguration.
+
+**A source that stops answering.** Session-end log lines carry a `tools=` count,
+so `tools=0` across a conversation that should have triggered lookups points at
+the agent's configuration or its instructions; `tools>0` with the agent still
+saying it does not know points at the index. Individual search failures are
+logged with the store key and swallowed deliberately — one dead source must not
+take a live demo down mid-sentence.
 
 **Choosing a region.** The Developer API is global-routed, so the Cloud Run
 `--region` no longer has to match anything -- pick whatever is near your

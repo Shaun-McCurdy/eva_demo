@@ -11,6 +11,7 @@ const BLANK = {
   voice: "Aoede",
   temperature: 1,
   accent: "#00a3e0",
+  dataStores: [],
   enabled: true,
 };
 
@@ -18,6 +19,8 @@ export default function AgentEditor({
   agent,
   mode, // "view" | "edit" | "create"
   voices,
+  dataStoreOptions,
+  maxDataStores,
   onSave,
   onDelete,
   onClone,
@@ -28,7 +31,11 @@ export default function AgentEditor({
   const [form, setForm] = useState(BLANK);
 
   useEffect(() => {
-    setForm({ ...BLANK, ...(agent || {}) });
+    const next = { ...BLANK, ...(agent || {}) };
+    // Always an array, whatever the server or a stale draft handed over: the
+    // checkbox list indexes into this on every render.
+    next.dataStores = Array.isArray(next.dataStores) ? next.dataStores : [];
+    setForm(next);
   }, [agent, mode]);
 
   const set = (key) => (event) => {
@@ -42,6 +49,22 @@ export default function AgentEditor({
   const liveUrl = form.slug ? `${window.location.origin}/a/${form.slug}` : "";
 
   const copyUrl = () => navigator.clipboard?.writeText(liveUrl);
+
+  const sources = dataStoreOptions || [];
+  const cap = maxDataStores || 3;
+  const chosen = form.dataStores || [];
+  const atCap = chosen.length >= cap;
+
+  const toggleSource = (key) => () =>
+    setForm((prev) => {
+      const current = prev.dataStores || [];
+      const next = current.includes(key)
+        ? current.filter((k) => k !== key)
+        // Order is preserved rather than sorted: it is the order the sales
+        // engineer picked them in, and the server searches them all anyway.
+        : [...current, key];
+      return { ...prev, dataStores: next };
+    });
 
   const submit = (event) => {
     event.preventDefault();
@@ -209,6 +232,52 @@ export default function AgentEditor({
           on the server on top of this and cannot be edited here, so there is no
           need to repeat them.
         </span>
+      </div>
+
+      <div className="field">
+        <label>Knowledge sources</label>
+        {sources.length === 0 ? (
+          <p className="help" style={{ margin: 0 }}>
+            None are configured on this server yet. Once a source is added, an
+            agent can look things up mid-conversation instead of answering only
+            from its instructions.
+          </p>
+        ) : (
+          <>
+            <div className="source-list">
+              {sources.map((source) => {
+                const on = chosen.includes(source.key);
+                return (
+                  <label
+                    key={source.key}
+                    className="source-item"
+                    data-selected={on}
+                    data-disabled={readOnly || (!on && atCap)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={toggleSource(source.key)}
+                      disabled={readOnly || (!on && atCap)}
+                    />
+                    <span className="meta">
+                      <strong>{source.label}</strong>
+                      <span>{source.key}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <span className="help">
+              {chosen.length === 0
+                ? "None selected. EVA will answer only from her instructions."
+                : `${chosen.length} of ${cap} selected.`}{" "}
+              Each source is searched while the visitor waits, so EVA pauses for
+              a moment before answering — she is told to say so out loud. Adding
+              more sources makes that pause longer.
+            </span>
+          </>
+        )}
       </div>
 
       <div className="field-row">

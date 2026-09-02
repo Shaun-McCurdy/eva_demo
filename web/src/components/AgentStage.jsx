@@ -22,6 +22,7 @@ export default function AgentStage() {
   const [muted, setMuted] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
+  const [searching, setSearching] = useState(false);
 
   const clientRef = useRef(null);
   const micRef = useRef(null);
@@ -95,6 +96,7 @@ export default function AgentStage() {
     clientRef.current?.disconnect();
     clientRef.current = null;
     setSpeaking(false);
+    setSearching(false);
     setCameraOn(false);
     setMuted(false);
     setMicBlocked(false);
@@ -133,23 +135,48 @@ export default function AgentStage() {
           appendChunk("agent", message.data, false);
           break;
 
+        case Msg.TOOL_STATUS: {
+          // The model is blocked for the whole lookup and says nothing, so
+          // without this the avatar just sits there and the visitor assumes the
+          // line has dropped. This is the only thing on screen during it.
+          const { state, sources } = message.data || {};
+          if (state === "searching") {
+            setSearching(true);
+            break;
+          }
+          setSearching(false);
+          const names = [...new Set((sources || []).map((s) => s.source).filter(Boolean))];
+          if (names.length) {
+            addSystemLine(`Looked in ${names.join(" and ")}.`);
+          } else {
+            addSystemLine("Looked for that and found nothing.");
+          }
+          break;
+        }
+
         case Msg.INTERRUPTED:
           playerRef.current?.interrupt();
           speakingUntilRef.current = 0;
           setSpeaking(false);
+          // A visitor interrupting cancels the lookup upstream, so no "done"
+          // frame is coming and the flag would otherwise stick on for good.
+          setSearching(false);
           sealOpenTurns();
           break;
 
         case Msg.TURN_COMPLETE:
+          setSearching(false);
           sealOpenTurns();
           break;
 
         case Msg.ERROR:
+          setSearching(false);
           setError(String(message.data));
           setPhase("error");
           break;
 
         case Msg.CLOSED:
+          setSearching(false);
           setPhase((current) => (current === "live" ? "ended" : current));
           break;
 
@@ -157,7 +184,7 @@ export default function AgentStage() {
           break;
       }
     },
-    [appendChunk, sealOpenTurns]
+    [appendChunk, sealOpenTurns, addSystemLine]
   );
 
   // ---- start ------------------------------------------------------------
@@ -346,13 +373,32 @@ export default function AgentStage() {
               {phase === "connecting" && <p className="hint">Waking EVA up…</p>}
               {live && (
                 <>
-                  <p className="who">{speaking ? agent.name : muted ? "Muted" : "Your turn"}</p>
+                  <p className="who">
+                    {searching
+                      ? "Looking that up"
+                      : speaking
+                        ? agent.name
+                        : muted
+                          ? "Muted"
+                          : "Your turn"}
+                  </p>
                   <p className="hint">
-                    {speaking
-                      ? "Speak over her to interrupt."
-                      : muted
-                        ? "Unmute to keep talking."
-                        : "Just start talking."}
+                    {searching ? (
+                      <span className="searching-hint">
+                        <span className="searching-dots" aria-hidden="true">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                        Checking Enghouse sources — she'll answer in a moment.
+                      </span>
+                    ) : speaking ? (
+                      "Speak over her to interrupt."
+                    ) : muted ? (
+                      "Unmute to keep talking."
+                    ) : (
+                      "Just start talking."
+                    )}
                   </p>
                 </>
               )}

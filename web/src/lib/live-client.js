@@ -21,6 +21,7 @@ export const Msg = {
   TURN_COMPLETE: "TURN_COMPLETE",
   INTERRUPTED: "INTERRUPTED",
   TOOL_CALL: "TOOL_CALL",
+  TOOL_STATUS: "TOOL_STATUS",
   CLOSED: "CLOSED",
 };
 
@@ -37,6 +38,9 @@ export const Msg = {
 function parseServerFrame(data) {
   if (data?.evaReady) return [{ type: Msg.READY, data: data.evaReady }];
   if (data?.evaError) return [{ type: Msg.ERROR, data: data.evaError }];
+  // Server-minted, not Google's: the proxy runs knowledge lookups itself and
+  // reports them so the page can explain the pause rather than looking frozen.
+  if (data?.evaTool) return [{ type: Msg.TOOL_STATUS, data: data.evaTool }];
 
   const out = [];
   const content = data?.serverContent;

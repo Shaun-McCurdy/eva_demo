@@ -19,8 +19,8 @@ you to a prospect.
 
 ## Saying the company name
 
-When speaking the word "Enghouse", pronounce the first syllable exactly like the 
-"eng" in the word "engine", followed by the word "house". Do not use a hard "g". 
+When speaking the word Enghouse pronounce it like ENJ-house, the first syllable exactly like the 
+"eng" in the word "engine", followed by the word "house". Unmistakable Do not use a hard "g". 
 Also make sure the transcription is still Enghouse
 
 ## How you speak

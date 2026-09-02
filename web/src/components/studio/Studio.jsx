@@ -8,6 +8,8 @@ export default function Studio() {
   const [who, setWho] = useState("");
   const [agents, setAgents] = useState([]);
   const [voices, setVoices] = useState([]);
+  const [dataStores, setDataStores] = useState([]);
+  const [maxDataStores, setMaxDataStores] = useState(3);
   const [selected, setSelected] = useState(null);
   const [mode, setMode] = useState("view");
   const [draft, setDraft] = useState(null);
@@ -30,6 +32,8 @@ export default function Studio() {
     const data = await api.studioAgents();
     setAgents(data.agents || []);
     setVoices(data.voices || []);
+    setDataStores(data.dataStores || []);
+    setMaxDataStores(data.maxDataStores || 3);
     const slug = preferSlug || selected;
     const found = (data.agents || []).find((a) => a.slug === slug);
     setSelected(found ? found.slug : (data.agents || [])[0]?.slug || null);
@@ -214,6 +218,8 @@ export default function Studio() {
               agent={currentAgent}
               mode={effectiveMode}
               voices={voices}
+              dataStoreOptions={dataStores}
+              maxDataStores={maxDataStores}
               onSave={save}
               onDelete={remove}
               onClone={startClone}

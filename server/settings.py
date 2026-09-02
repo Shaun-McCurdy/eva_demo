@@ -70,6 +70,13 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+
+
 class Settings:
     # ---- Gemini Developer API -----------------------------------------
     # The Live API authenticates with an API key in the query string. There is
@@ -85,7 +92,7 @@ class Settings:
     # Set empty to send nothing at all and fall back to whatever the model does
     # on its own -- which is also the escape hatch if a future model rejects the
     # field, since it can be cleared with an env var and no rebuild.
-    THINKING_LEVEL = os.environ.get("GEMINI_THINKING_LEVEL", "medium").strip().lower()
+    THINKING_LEVEL = os.environ.get("GEMINI_THINKING_LEVEL", "minimal").strip().lower()
 
     # ---- Google Cloud --------------------------------------------------
     # Firestore is the only thing left that needs a project; the model calls do
@@ -121,6 +128,33 @@ class Settings:
         # The Developer API names models `models/<id>`. The long
         # projects/.../locations/.../publishers/... form is Vertex-only.
         return f"models/{model or self.MODEL}"
+
+    # ---- Vertex AI Search (Discovery Engine) --------------------------
+    # The allowlist of knowledge sources an agent may be pointed at. One
+    # record per line or per `;`:
+    #
+    #   key | Label for the studio | engine:<engine-id> [| location]
+    #
+    # Target an *engine*, not a data store: search edition is set at the engine
+    # level, and a data store queried directly runs at STANDARD tier, which
+    # refuses extractive answers and website search outright.
+    #
+    # This is an allowlist rather than free-text because the project is a
+    # shared demo sandbox holding other customers' data stores. See
+    # retrieval.py for the full reasoning.
+    VERTEX_DATA_STORES = os.environ.get("VERTEX_DATA_STORES", "").strip()
+    SEARCH_LOCATION = os.environ.get("SEARCH_LOCATION", "global").strip() or "global"
+    # The Live model blocks synchronously on a tool call, so this timeout is
+    # how long a visitor can be left listening to silence before the agent is
+    # told the lookup failed and can say so.
+    SEARCH_TIMEOUT_SECONDS = _float("SEARCH_TIMEOUT_SECONDS", 6.0)
+    SEARCH_MAX_RESULTS = _int("SEARCH_MAX_RESULTS", 4)
+    # Per-passage cap. Four passages of 600 characters is roughly 2.5 kB into
+    # an audio context window that is already under sliding-window compression.
+    SEARCH_SNIPPET_CHARS = _int("SEARCH_SNIPPET_CHARS", 600)
+    # How many sources one agent may carry. Each is a parallel request inside a
+    # turn the model is blocked on, so this is a latency ceiling, not a quota.
+    MAX_DATA_STORES_PER_AGENT = _int("MAX_DATA_STORES_PER_AGENT", 3)
 
     # ---- Agent storage ------------------------------------------------
     # "file"      -> JSON on local disk (dev; ephemeral on Cloud Run)
@@ -194,6 +228,12 @@ class Settings:
 
     def validate(self) -> list[str]:
         problems = []
+        if self.VERTEX_DATA_STORES and not self.PROJECT_ID:
+            problems.append(
+                "VERTEX_DATA_STORES is set but no Google Cloud project could be "
+                "determined, so every knowledge lookup will fail. Set "
+                "GOOGLE_CLOUD_PROJECT (Cloud Run does not set it for you)."
+            )
         if self.THINKING_LEVEL and not self.thinking_level:
             problems.append(
                 "GEMINI_THINKING_LEVEL=%r is not one of %s -- no thinking config "
