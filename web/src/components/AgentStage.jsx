@@ -38,6 +38,12 @@ export default function AgentStage() {
   const audioSources = useMemo(() => ({ player: playerRef, mic: micRef }), []);
   const speakingUntilRef = useRef(0);
 
+  // Sources are held here between the search finishing and the turn ending, so
+  // they can be shown under the answer they support rather than jumping in
+  // ahead of it. A ref, not state: nothing renders from it until it is flushed,
+  // and a state update per tool call would re-render the stage for nothing.
+  const pendingSourcesRef = useRef(null);
+
   // ---- load the agent's public profile ---------------------------------
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +100,46 @@ export default function AgentStage() {
     setTurns((prev) => prev.map((t) => (t.finished ? t : { ...t, finished: true })));
   }, []);
 
+  /**
+   * Append whatever the searches in this turn found, once the turn is over.
+   *
+   * Called from every way a turn can end, not just the clean one -- an
+   * interrupted or dropped turn still did the lookup, and silently discarding
+   * the links would lose the one thing the visitor can act on.
+   */
+  const flushSources = useCallback(() => {
+    const pending = pendingSourcesRef.current;
+    if (!pending) return;
+    pendingSourcesRef.current = null;
+
+    const found = pending.sources;
+    if (!found.length) {
+      addSystemLine(
+        pending.failed
+          ? "Could not reach the knowledge base."
+          : "Looked for that and found nothing."
+      );
+      return;
+    }
+
+    const names = [...new Set(found.map((s) => s.source).filter(Boolean))];
+    // One entry per page, not per passage: several passages routinely come from
+    // the same URL and listing it three times reads as a bug.
+    const links = [];
+    const seen = new Set();
+    for (const source of found) {
+      if (!source.link || seen.has(source.link)) continue;
+      seen.add(source.link);
+      links.push({
+        title: source.title || source.link,
+        summary: source.summary || "",
+        link: source.link,
+      });
+      if (links.length === 3) break;
+    }
+    addSystemLine(`Looked in ${names.join(" and ")}.`, links);
+  }, [addSystemLine]);
+
   // ---- teardown ---------------------------------------------------------
   const teardown = useCallback(() => {
     if (rafRef.current) {
@@ -120,9 +166,10 @@ export default function AgentStage() {
   const stop = useCallback(() => {
     teardown();
     sealOpenTurns();
+    flushSources();
     setPhase("ended");
     addSystemLine("Conversation ended.");
-  }, [teardown, sealOpenTurns, addSystemLine]);
+  }, [teardown, sealOpenTurns, addSystemLine, flushSources]);
 
   // ---- incoming messages ------------------------------------------------
   const handleMessage = useCallback(
@@ -158,33 +205,15 @@ export default function AgentStage() {
             break;
           }
           setSearching(false);
-          const found = sources || [];
-          if (!found.length) {
-            // "couldn't reach" and "found nothing" need different fixes, and on
-            // a demo they need different reactions from whoever is presenting.
-            addSystemLine(
-              state === "error"
-                ? "Could not reach the knowledge base."
-                : "Looked for that and found nothing."
-            );
-            break;
-          }
-          const names = [...new Set(found.map((s) => s.source).filter(Boolean))];
-          // One entry per page, not per passage: several passages routinely
-          // come from the same URL and listing it three times reads as a bug.
-          const links = [];
-          const seen = new Set();
-          for (const source of found) {
-            if (!source.link || seen.has(source.link)) continue;
-            seen.add(source.link);
-            links.push({
-              title: source.title || source.link,
-              summary: source.summary || "",
-              link: source.link,
-            });
-            if (links.length === 3) break;
-          }
-          addSystemLine(`Looked in ${names.join(" and ")}.`, links);
+          // Accumulated rather than appended: the model can call the tool more
+          // than once in a turn, and two separate source blocks around one
+          // answer read worse than one underneath it.
+          const pending = pendingSourcesRef.current || { sources: [], failed: false };
+          pending.sources.push(...(sources || []));
+          // "couldn't reach" and "found nothing" need different fixes, and on a
+          // demo they need different reactions from whoever is presenting.
+          pending.failed = pending.failed || state === "error";
+          pendingSourcesRef.current = pending;
           break;
         }
 
@@ -196,21 +225,25 @@ export default function AgentStage() {
           // frame is coming and the flag would otherwise stick on for good.
           setSearching(false);
           sealOpenTurns();
+          flushSources();
           break;
 
         case Msg.TURN_COMPLETE:
           setSearching(false);
           sealOpenTurns();
+          flushSources();
           break;
 
         case Msg.ERROR:
           setSearching(false);
+          flushSources();
           setError(String(message.data));
           setPhase("error");
           break;
 
         case Msg.CLOSED:
           setSearching(false);
+          flushSources();
           setPhase((current) => (current === "live" ? "ended" : current));
           break;
 
@@ -218,7 +251,7 @@ export default function AgentStage() {
           break;
       }
     },
-    [appendChunk, sealOpenTurns, addSystemLine]
+    [appendChunk, sealOpenTurns, addSystemLine, flushSources]
   );
 
   // ---- start ------------------------------------------------------------
