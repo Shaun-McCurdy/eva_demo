@@ -275,9 +275,17 @@ def retrieval_clause(sources) -> str:
 You can search Enghouse's own material with the search_enghouse_knowledge
 tool. It covers: {names}.
 
-- Use it whenever you are asked something specific about Enghouse -- products,
-  capabilities, integrations, customers, how something works. Do not answer
-  those from memory.
+**This section overrides the product detail written above.** That detail is
+background for your own orientation. It is not necessarily current, and it is
+not what you answer from. The search is.
+
+- Whenever the person asks anything specific about Enghouse -- a product, a
+  capability, an integration, a customer, a number, how something works -- call
+  search_enghouse_knowledge before you answer. Do this even when you believe you
+  already know the answer from the text above. Believing you know it is not a
+  reason to skip the search; it is the most common way to give a stale answer.
+- Saying you will check is not checking. If you say you are going to look
+  something up, actually call the tool in that same turn.
 - Say one short line out loud before you search, so the person knows why you
   have gone quiet. Vary it. "Let me check that." "One moment, I'll look."
 - Searching takes a few seconds. Do not fill the silence with more questions.
