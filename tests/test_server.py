@@ -535,6 +535,76 @@ check("linksOnScreen is false when nothing is linkable",
 check("the model is not told about links that do not exist",
       "on the visitor's screen" not in no_links["note"], no_links["note"])
 
+# A store that 403s and a store with no match are both an empty list. They need
+# opposite fixes, so they must not read the same anywhere an operator looks.
+broke = retrieval.tool_response_payload([], failed=True)
+check("a failed search is still reported as not found", broke["found"] is False)
+check("a failed search is distinguishable from an empty one",
+      broke["note"] != missing["note"])
+check("a failed search says the knowledge base was unreachable",
+      "could not be reached" in broke["note"], broke["note"])
+check("the visitor is never told there is a technical problem",
+      "Do not mention a technical problem" in broke["note"])
+check("an empty search does not claim a failure",
+      "could not be reached" not in missing["note"])
+
+check("an outcome carrying passages is truthy",
+      bool(retrieval.SearchOutcome(passages)) is True)
+check("an empty outcome is falsy", bool(retrieval.SearchOutcome([])) is False)
+check("an outcome defaults to not failed",
+      retrieval.SearchOutcome(passages).failed is False)
+
+# Captured verbatim from the live eva-website-data engine. The field names here
+# are the contract with Discovery Engine, and nothing else in this suite would
+# notice if they changed -- the symptom in production is an agent that searches
+# successfully and silently finds nothing.
+LIVE_SHAPE = {"results": [{
+    "id": "faa4e999a3e42dfc155725f932c80920",
+    "document": {
+        "name": "projects/908635319911/locations/global/collections/"
+                "default_collection/dataStores/eva-enghous-data_1788357237615"
+                "/branches/0/documents/faa4e999a3e42dfc155725f932c80920",
+        "id": "faa4e999a3e42dfc155725f932c80920",
+        "derivedStructData": {
+            "title": "Options for Migrating your Contact Center from your Old "
+                     "PBX - Enghouse Interactive",
+            "snippets": [{
+                "snippet": "Are you looking to remain on your existing PBX for a "
+                           "little longer, or move to a UC or UCaaS <b>"
+                           "platform</b> like Microsoft Teams?&nbsp;...",
+                "snippet_status": "SUCCESS"}],
+            "can_fetch_raw_content": "true",
+            "link": "https://www.enghouseinteractive.com/resources/"
+                    "eguide-contact-center-pbx-migration-options/",
+            "displayLink": "www.enghouseinteractive.com",
+            "extractive_answers": [{
+                "content": "Many contact center operations are working with very "
+                           "old voice platforms."}],
+        }}}]}
+
+live = retrieval._passages_from(LIVE_SHAPE, entry, 600)
+check("the real Discovery Engine shape yields a passage", len(live) == 1)
+check("the real title is read", live[0].title.startswith("Options for Migrating"))
+check("the real link is read",
+      live[0].link == "https://www.enghouseinteractive.com/resources/"
+                      "eguide-contact-center-pbx-migration-options/")
+check("the extractive answer wins over the snippet",
+      live[0].content.startswith("Many contact center operations"))
+check("escaped <b> markup in a real snippet is stripped",
+      "<b>" not in live[0].content and "\\u003c" not in live[0].content)
+check("a real passage reaches the browser with its link",
+      live[0].for_client()["link"].startswith("https://"))
+check("a real passage reaches the model without its link",
+      "link" not in live[0].for_model())
+
+_snippet_only = json.loads(json.dumps(LIVE_SHAPE))
+del _snippet_only["results"][0]["document"]["derivedStructData"]["extractive_answers"]
+_fallback = retrieval._passages_from(_snippet_only, entry, 600)
+check("the real snippet is used when there is no extractive answer",
+      _fallback[0].content.startswith("Are you looking to remain"), _fallback[0].content)
+check("&nbsp; in a real snippet collapses to ordinary space",
+      "\xa0" not in _fallback[0].content, repr(_fallback[0].content))
+
 
 # ---------------------------------------------------------------------------
 section("Attaching data stores to an agent")

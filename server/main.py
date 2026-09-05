@@ -464,13 +464,14 @@ async def _run_tool_call(
     except Exception:  # noqa: BLE001
         pass
 
-    passages = []
+    outcome = retrieval.SearchOutcome([], failed=True)
     try:
-        passages = await retrieval.search(agent.get("dataStores") or [], query)
+        outcome = await retrieval.search(agent.get("dataStores") or [], query)
     except Exception:  # noqa: BLE001
         log.exception("tool call failed agent=%s", agent.get("slug"))
 
-    payload = retrieval.tool_response_payload(passages)
+    passages = outcome.passages
+    payload = retrieval.tool_response_payload(passages, failed=outcome.failed)
     try:
         await upstream.send(json.dumps(tool_response_frame(calls, payload)))
     except Exception:  # noqa: BLE001
@@ -482,7 +483,7 @@ async def _run_tool_call(
             json.dumps(
                 {
                     "evaTool": {
-                        "state": "done",
+                        "state": "error" if outcome.failed else "done",
                         "query": query,
                         "sources": [p.for_client() for p in passages],
                     }

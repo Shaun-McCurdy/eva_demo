@@ -311,10 +311,51 @@ def _search_blocking(entry: DataStoreEntry, query: str, project: str) -> list[Pa
         raise RetrievalError(
             f"{entry.key}: HTTP {response.status_code} {response.text[:200]}"
         )
-    return _passages_from(response.json(), entry, settings.SEARCH_SNIPPET_CHARS)
+
+    payload = response.json()
+    passages = _passages_from(payload, entry, settings.SEARCH_SNIPPET_CHARS)
+
+    # "The index matched nothing" and "the index matched and we failed to read
+    # it" are the same empty list to every caller, and they need completely
+    # different fixes. Say which, once, with the field names actually present --
+    # a snippet/extractive key that is not what _passages_from looks for is the
+    # whole difference, and it is invisible from the browser.
+    raw_results = payload.get("results") or []
+    if raw_results and not passages:
+        derived = (raw_results[0].get("document") or {}).get("derivedStructData") or {}
+        log.warning(
+            "store=%s returned %d result(s) but no readable passage -- "
+            "derivedStructData keys were %s",
+            entry.key,
+            len(raw_results),
+            sorted(derived.keys()) or "(none)",
+        )
+    else:
+        log.info(
+            "store=%s results=%d passages=%d", entry.key, len(raw_results), len(passages)
+        )
+    return passages
 
 
-async def search(keys: list[str], query: str) -> list[Passage]:
+@dataclass
+class SearchOutcome:
+    """Why the result list is the shape it is.
+
+    An empty list is ambiguous on its own -- a genuine miss and a store that
+    threw a 403 look identical -- and they need opposite responses: one is the
+    demo working correctly, the other is a broken deployment. Failures are
+    still swallowed rather than raised, because one dead source must not end a
+    live conversation, but they stop being silent.
+    """
+
+    passages: list[Passage]
+    failed: bool = False
+
+    def __bool__(self) -> bool:
+        return bool(self.passages)
+
+
+async def search(keys: list[str], query: str) -> SearchOutcome:
     """Search every data store an agent has attached, best-effort.
 
     One store failing must not lose the results of the others: a partial answer
@@ -322,26 +363,34 @@ async def search(keys: list[str], query: str) -> list[Passage]:
     """
     query = (query or "").strip()
     if not query:
-        return []
+        return SearchOutcome([])
 
     entries = catalogue.resolve(keys)
     if not entries:
-        return []
+        return SearchOutcome([])
 
     project = settings.PROJECT_ID
     if not project:
-        raise RetrievalError("no Google Cloud project resolved")
+        log.error("search skipped: no Google Cloud project resolved")
+        return SearchOutcome([], failed=True)
+
+    failures = 0
 
     async def one(entry: DataStoreEntry) -> list[Passage]:
+        nonlocal failures
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(_search_blocking, entry, query, project),
                 timeout=settings.SEARCH_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
+            failures += 1
             log.warning("search timed out store=%s", entry.key)
             return []
         except Exception:  # noqa: BLE001
+            failures += 1
+            # A 403 here is almost always the runtime service account missing
+            # roles/discoveryengine.viewer -- see DEPLOY.md step 3.
             log.exception("search failed store=%s", entry.key)
             return []
 
@@ -362,11 +411,15 @@ async def search(keys: list[str], query: str) -> list[Passage]:
             seen.add(fingerprint)
             merged.append(passage)
             if len(merged) >= settings.SEARCH_MAX_RESULTS:
-                return merged
-    return merged
+                return SearchOutcome(merged, failed=False)
+    # Only "failed" when nothing at all came back and something went wrong.
+    # Partial results are a success: the agent has something true to say.
+    return SearchOutcome(merged, failed=bool(failures) and not merged)
 
 
-def tool_response_payload(passages: list[Passage]) -> dict[str, Any]:
+def tool_response_payload(
+    passages: list[Passage], failed: bool = False
+) -> dict[str, Any]:
     """The `response` body of a functionResponse.
 
     The wrapper text matters: retrieved documents are untrusted input reaching
@@ -375,11 +428,18 @@ def tool_response_payload(passages: list[Passage]) -> dict[str, Any]:
     insurance against a page that says "ignore your instructions".
     """
     if not passages:
+        # The visitor hears the same graceful line either way -- a demo does not
+        # announce its own outage -- but the operator sees the difference in the
+        # logs and the transcript.
         return {
             "found": False,
             "note": (
-                "No matching information was found. Tell the person you do not "
-                "have that detail and offer to have someone follow up."
+                "The knowledge base could not be reached. Tell the person you do "
+                "not have that detail and offer to have someone follow up. Do not "
+                "mention a technical problem."
+                if failed
+                else "No matching information was found. Tell the person you do "
+                "not have that detail and offer to have someone follow up."
             ),
         }
     # The visitor gets the links; the model gets told they exist. That is the

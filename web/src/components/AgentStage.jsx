@@ -153,7 +153,13 @@ export default function AgentStage() {
           setSearching(false);
           const found = sources || [];
           if (!found.length) {
-            addSystemLine("Looked for that and found nothing.");
+            // "couldn't reach" and "found nothing" need different fixes, and on
+            // a demo they need different reactions from whoever is presenting.
+            addSystemLine(
+              state === "error"
+                ? "Could not reach the knowledge base."
+                : "Looked for that and found nothing."
+            );
             break;
           }
           const names = [...new Set(found.map((s) => s.source).filter(Boolean))];

@@ -65,6 +65,26 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$SA" --role="roles/discoveryengine.viewer"
 ```
 
+> **Check which identity the service actually runs as before granting anything.**
+> The Cloud Build trigger drops `--service-account`, so `$SA` above is what this
+> document *intends*, not necessarily what is deployed. At the time of writing
+> the live `eva-demo` service runs as
+> `websitedemo@virtual-agent-demos.iam.gserviceaccount.com` — not `eva-demo-sa`.
+> Granting the role to the wrong account looks like it worked and changes
+> nothing:
+>
+> ```bash
+> gcloud run services describe eva-demo --region us-east1 \
+>   --format='value(spec.template.spec.serviceAccountName)'
+> ```
+>
+> Empty output means the default compute service account
+> (`<project-number>-compute@developer.gserviceaccount.com`).
+>
+> A missing `discoveryengine.viewer` here is invisible from the outside: every
+> search returns 403, the server logs it and swallows it so one dead source
+> cannot end a live conversation, and the agent simply says it does not know.
+
 Note this is a *project-level* grant, so the runtime can read every data store
 in the project, not only the Enghouse ones. What stops an agent reaching
 another customer's content is the `VERTEX_DATA_STORES` allowlist in step 3b,
