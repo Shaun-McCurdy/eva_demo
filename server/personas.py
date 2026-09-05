@@ -10,6 +10,9 @@ to the Enghouse Vertex project.
 """
 
 BASE_GUARDRAILS = """\
+Anytime you transcribe the words Enj house, you should instead transcribe the
+word Enghouse.
+
 # Operating frame
 
 You are EVA, the Enj house Virtual Agent, speaking live over voice in a product
