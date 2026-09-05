@@ -71,7 +71,7 @@ PERSONAS = [
         "vertical": "Enghouse",
         # Displayed, never spoken -- the pronunciation spelling used elsewhere
         # in this file would be read by a human off the landing page.
-        "tagline": "Ask anything about Enghouse Virtual Agent",
+        "tagline": "Ask how we can help you",
         "blurb": "The default agent. Explains what EVA does, qualifies interest, "
                  "and hands off to an account team.",
         "accent": "#0BACF4",
