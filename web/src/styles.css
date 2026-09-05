@@ -588,6 +588,30 @@ button, input, textarea, select { font: inherit; color: inherit; }
   background: transparent; border: 0; color: var(--text-dim);
   font-size: 0.82rem; text-align: center; padding: 0.2rem;
 }
+/* Source links. EVA is never given a URL, so the only place a page can reach
+   the visitor is here -- which means these have to be genuinely clickable and
+   readable, not a decorative footnote under the answer. */
+.turn-links {
+  list-style: none; margin: 0.35rem 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 0.25rem;
+  /* align-self + width rather than `margin: auto`: auto margins on a flex
+     child cancel the stretch and shrink each row to its own text, which reads
+     as scattered pills instead of a list of sources. */
+  align-self: center; width: 100%; max-width: 26rem; text-align: left;
+}
+.turn-links a {
+  display: block; padding: 0.4rem 0.6rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--accent-ink); font-size: 0.8rem; line-height: 1.35;
+  text-decoration: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.turn-links a::before { content: "↗"; margin-right: 0.4rem; opacity: 0.7; }
+.turn-links a:hover, .turn-links a:focus-visible {
+  border-color: var(--accent-line); background: var(--accent-soft);
+  text-decoration: underline;
+}
+
 .turn .bubble .cursor {
   display: inline-block; width: 2px; height: 0.95em; background: var(--accent);
   margin-left: 2px; vertical-align: text-bottom; animation: blink 1s step-end infinite;

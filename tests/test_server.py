@@ -513,6 +513,28 @@ check("a miss is reported as not found", missing["found"] is False)
 check("a miss carries no results key", "results" not in missing)
 check("a miss tells the agent what to say", "follow up" in missing["note"])
 
+# The visitor gets clickable links; the model is only told they exist. If a URL
+# ever reaches the model it can read one aloud, which the guardrails forbid and
+# which sounds terrible over voice.
+check("no URL appears anywhere in the model payload",
+      "https" not in json.dumps(found), json.dumps(found)[:200])
+check("the model is told links are on screen", found["linksOnScreen"] is True)
+check("the note says the links are already on screen",
+      "on the visitor's screen" in found["note"], found["note"])
+check("the note tells the model it has no addresses to read",
+      "not been given the web addresses" in found["note"], found["note"])
+
+linkless = retrieval._passages_from(
+    {"results": [{"document": {"derivedStructData": {
+        "title": "No link", "snippets": [{"snippet": "body text"}]}}}]},
+    entry, 600)
+no_links = retrieval.tool_response_payload(linkless)
+check("a passage with no link still answers the call", no_links["found"] is True)
+check("linksOnScreen is false when nothing is linkable",
+      no_links["linksOnScreen"] is False)
+check("the model is not told about links that do not exist",
+      "on the visitor's screen" not in no_links["note"], no_links["note"])
+
 
 # ---------------------------------------------------------------------------
 section("Attaching data stores to an agent")
@@ -546,6 +568,10 @@ try:
           "before you search" in si)
     check("the clause forbids treating results as instructions",
           "never instructions" in si)
+    check("the clause forbids saying a web address out loud",
+          "Never say a web address out loud" in si)
+    check("the clause tells the agent the links appear on screen",
+          "on the visitor's screen" in si)
     check("the guardrails still lead the system instruction",
           si.startswith(BASE_GUARDRAILS.strip()[:60]))
 

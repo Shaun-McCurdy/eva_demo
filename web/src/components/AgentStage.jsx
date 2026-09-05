@@ -73,8 +73,14 @@ export default function AgentStage() {
     });
   }, []);
 
-  const addSystemLine = useCallback((text) => {
-    setTurns((prev) => [...prev, { id: nextId(), role: "system", text, finished: true }]);
+  // `links` is how a page reaches the visitor without EVA ever seeing a URL:
+  // she is given the passage text only, the browser is given the links, and
+  // they meet here in the transcript rather than in anything she says.
+  const addSystemLine = useCallback((text, links = null) => {
+    setTurns((prev) => [
+      ...prev,
+      { id: nextId(), role: "system", text, links, finished: true },
+    ]);
   }, []);
 
   const sealOpenTurns = useCallback(() => {
@@ -145,12 +151,23 @@ export default function AgentStage() {
             break;
           }
           setSearching(false);
-          const names = [...new Set((sources || []).map((s) => s.source).filter(Boolean))];
-          if (names.length) {
-            addSystemLine(`Looked in ${names.join(" and ")}.`);
-          } else {
+          const found = sources || [];
+          if (!found.length) {
             addSystemLine("Looked for that and found nothing.");
+            break;
           }
+          const names = [...new Set(found.map((s) => s.source).filter(Boolean))];
+          // One entry per page, not per passage: several passages routinely
+          // come from the same URL and listing it three times reads as a bug.
+          const links = [];
+          const seen = new Set();
+          for (const source of found) {
+            if (!source.link || seen.has(source.link)) continue;
+            seen.add(source.link);
+            links.push({ title: source.title || source.link, link: source.link });
+            if (links.length === 3) break;
+          }
+          addSystemLine(`Looked in ${names.join(" and ")}.`, links);
           break;
         }
 

@@ -117,6 +117,16 @@ async def security_headers(request: Request, call_next):
 # Public API
 # ---------------------------------------------------------------------------
 
+# Two paths, one handler. `/healthz` is a *reserved path on Google Cloud*: the
+# Google Front End answers it with its own branded 404 before the request ever
+# reaches the container, on the run.app URL and through a domain mapping alike,
+# and no request log is produced. The symptom is a health endpoint that works
+# perfectly on localhost and 404s in production for no visible reason.
+#
+# /api/healthz is the one to use anywhere deployed. /healthz stays registered
+# because it is reachable locally and behind any other proxy, and dropping it
+# would break every runbook and bookmark that already uses it.
+@app.get("/api/healthz")
 @app.get("/healthz")
 async def healthz():
     # Whether each dependency is configured, never what it is configured to.

@@ -63,6 +63,25 @@ export default function Transcript({ turns, agentName, onSend, canSend, live }) 
                   <span className="cursor" aria-hidden="true" />
                 )}
               </div>
+              {turn.links?.length > 0 && (
+                <ul className="turn-links">
+                  {turn.links.map((source) => (
+                    <li key={source.link}>
+                      <a
+                        href={source.link}
+                        // A same-tab navigation would tear down the live
+                        // WebSocket mid-conversation. noreferrer alongside
+                        // noopener because these URLs come from a crawled
+                        // index, not from us.
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {source.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           ))
         )}

@@ -18,12 +18,6 @@ demonstration on the Enj house website. The person you are talking to is almost
 always a prospective customer, an analyst, or an Enj house sales engineer showing
 you to a prospect. 
 
-## Saying the company name
-
-When speaking the word Enj house pronounce it like ENJ-house, the first syllable exactly like the 
-"eng" in the word "engine", followed by the word "house". Unmistakable Do not use a hard "g". 
-Also make sure the transcription is still Enj house
-
 ## How you speak
 - You are being heard, not read. Use short, natural spoken sentences. No lists,
   no markdown, no headings, no emoji, no stage directions.
@@ -75,12 +69,18 @@ PERSONAS = [
         "slug": "concierge",
         "name": "EVA Concierge",
         "vertical": "Enghouse",
-        "tagline": "Ask anything about Enj house Virtual Agent",
+        # Displayed, never spoken -- the pronunciation spelling used elsewhere
+        # in this file would be read by a human off the landing page.
+        "tagline": "Ask anything about Enghouse Virtual Agent",
         "blurb": "The default agent. Explains what EVA does, qualifies interest, "
                  "and hands off to an account team.",
         "accent": "#0BACF4",
         "voice": "Aoede",
         "temperature": 1.0,
+        # Keys from the server's VERTEX_DATA_STORES allowlist. Built-ins carry
+        # theirs in code because they are code -- the studio cannot edit them,
+        # which is what stops a bad edit taking the public demo down.
+        "dataStores": ["eva-website"],
         "goal": (
             "Help the visitor understand what the Enj house Virtual Agent is and "
             "whether it fits their contact centre, and capture enough context "

@@ -203,9 +203,16 @@ successfully, and the studio then has exactly one way in.
 ## 6. Check it
 
 ```bash
-curl -s $URL/healthz            # {"ok":true,"apiKey":true,"project":true,"projectSource":"GOOGLE_CLOUD_PROJECT","dataStores":1}
+curl -s $URL/api/healthz        # {"ok":true,"apiKey":true,"project":true,"projectSource":"GOOGLE_CLOUD_PROJECT","dataStores":1}
 curl -s $URL/api/agents | head  # five built-in agents
 ```
+
+**Use `/api/healthz`, not `/healthz`.** `/healthz` is a reserved path on Google
+Cloud: the Google Front End answers it with its own branded 404 before the
+request reaches the container — on the `run.app` URL and through a domain
+mapping alike — and no request log is written. The app still serves `/healthz`
+for local runs and other proxies, but on Cloud Run it is unreachable, and the
+failure looks exactly like a broken deploy rather than a reserved name.
 
 `apiKey:false` means every live session will be refused — the `--set-secrets`
 above did not land. It reports only whether a key is configured, never its value.
@@ -284,7 +291,7 @@ closes the socket rather than failing cleanly, so the close code and reason are
 logged.
 
 **Adding a knowledge source.** Edit `ARG VERTEX_DATA_STORES` in the Dockerfile
-and redeploy, then confirm `dataStores` in `/healthz` went up. The engine has to
+and redeploy, then confirm `dataStores` in `/api/healthz` went up. The engine has to
 be Enterprise edition; a STANDARD one returns a 400 on every search and the
 agent will say it does not know. A newly created website store also needs time
 to crawl — zero results is usually indexing, not misconfiguration.
