@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { EvaLiveClient, Msg } from "../lib/live-client";
 import { CameraStreamer, MicStreamer, VoicePlayer } from "../lib/media";
 import { accentVars } from "../lib/theme";
+import { correctTranscript } from "../lib/transcript-text";
 
 let turnSeq = 0;
 const nextId = () => `t${++turnSeq}`;
@@ -63,13 +64,19 @@ export default function AgentStage() {
         const updated = [...prev];
         updated[updated.length - 1] = {
           ...last,
-          text: last.text + text,
+          // Corrected after concatenation, not on the incoming chunk: the
+          // company name routinely straddles a chunk boundary, and half of it
+          // is unrecognisable on its own.
+          text: correctTranscript(last.text + text),
           finished: finished || last.finished,
         };
         return updated;
       }
       if (!text.trim() && !finished) return prev;
-      return [...prev, { id: nextId(), role, text, finished: !!finished }];
+      return [
+        ...prev,
+        { id: nextId(), role, text: correctTranscript(text), finished: !!finished },
+      ];
     });
   }, []);
 
@@ -170,7 +177,11 @@ export default function AgentStage() {
           for (const source of found) {
             if (!source.link || seen.has(source.link)) continue;
             seen.add(source.link);
-            links.push({ title: source.title || source.link, link: source.link });
+            links.push({
+              title: source.title || source.link,
+              summary: source.summary || "",
+              link: source.link,
+            });
             if (links.length === 3) break;
           }
           addSystemLine(`Looked in ${names.join(" and ")}.`, links);

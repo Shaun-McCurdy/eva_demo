@@ -600,17 +600,32 @@ button, input, textarea, select { font: inherit; color: inherit; }
   align-self: center; width: 100%; max-width: 26rem; text-align: left;
 }
 .turn-links a {
-  display: block; padding: 0.4rem 0.6rem; border-radius: var(--radius-sm);
+  display: block; padding: 0.45rem 0.6rem; border-radius: var(--radius-sm);
   border: 1px solid var(--border); background: var(--surface);
-  color: var(--accent-ink); font-size: 0.8rem; line-height: 1.35;
   text-decoration: none;
+}
+/* Title on one line so the list stays scannable; the summary is allowed two,
+   which is about what gets read mid-conversation before attention goes back
+   to the voice. */
+.turn-links .link-title {
+  display: block; color: var(--accent-ink);
+  font-size: 0.8rem; line-height: 1.35;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.turn-links a::before { content: "↗"; margin-right: 0.4rem; opacity: 0.7; }
+.turn-links .link-title::before { content: "↗"; margin-right: 0.4rem; opacity: 0.7; }
+.turn-links .link-summary {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 0.15rem; color: var(--text-dim);
+  font-size: 0.74rem; line-height: 1.4; font-weight: 300;
+}
 .turn-links a:hover, .turn-links a:focus-visible {
   border-color: var(--accent-line); background: var(--accent-soft);
-  text-decoration: underline;
 }
+/* Underline the title only -- underlining the summary too makes a two-line
+   block of dim text look like one enormous link. */
+.turn-links a:hover .link-title,
+.turn-links a:focus-visible .link-title { text-decoration: underline; }
 
 .turn .bubble .cursor {
   display: inline-block; width: 2px; height: 0.95em; background: var(--accent);

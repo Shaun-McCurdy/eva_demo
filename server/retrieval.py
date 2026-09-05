@@ -52,6 +52,19 @@ KEY_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$")
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
+# Crawled page titles carry the site name on the end of every single result --
+# "... - Enghouse Interactive", over and over down the list. It is noise the
+# moment there is more than one result, and in a narrow transcript column it
+# pushes the part that distinguishes one page from another off the end of the
+# line. Matches " - Foo", " | Foo", " – Foo", " — Foo", " · Foo".
+_TITLE_SUFFIX_RE = re.compile(r"\s+[-|–—·]\s+[^-|–—·]{1,40}$")
+
+# A link in the transcript is read at a glance, mid-conversation, while someone
+# is still talking. One line of title and two of summary is about all that gets
+# taken in before attention goes back to the voice.
+LINK_TITLE_CHARS = 62
+LINK_SUMMARY_CHARS = 150
+
 
 class RetrievalError(RuntimeError):
     """A search could not be completed. Never surfaced to a visitor verbatim."""
@@ -214,7 +227,15 @@ class Passage:
         return {"title": self.title, "content": self.content, "source": self.source}
 
     def for_client(self) -> dict[str, str]:
-        return {"title": self.title, "link": self.link, "source": self.source}
+        return {
+            "title": short_title(self.title),
+            # The passage the index judged to answer the question, which is a
+            # better description of why this link is here than any metadata the
+            # page carries about itself.
+            "summary": _clean(self.content, LINK_SUMMARY_CHARS),
+            "link": self.link,
+            "source": self.source,
+        }
 
 
 def _clean(text: Any, limit: int) -> str:
@@ -227,6 +248,19 @@ def _clean(text: Any, limit: int) -> str:
     if len(text) > limit:
         text = text[:limit].rsplit(" ", 1)[0] + "..."
     return text
+
+
+def short_title(title: str) -> str:
+    """Drop the site-name suffix, then trim to something readable at a glance.
+
+    The suffix is only dropped when enough of the title survives it: "Blog -
+    Enghouse Interactive" must not become "Blog", and a genuinely hyphenated
+    title with no site name should be left alone.
+    """
+    trimmed = _TITLE_SUFFIX_RE.sub("", title or "").strip()
+    if len(trimmed) >= 15:
+        title = trimmed
+    return _clean(title, LINK_TITLE_CHARS)
 
 
 def _passages_from(payload: dict, entry: DataStoreEntry, limit: int) -> list[Passage]:

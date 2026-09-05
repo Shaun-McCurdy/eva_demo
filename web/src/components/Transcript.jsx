@@ -76,7 +76,10 @@ export default function Transcript({ turns, agentName, onSend, canSend, live }) 
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        {source.title}
+                        <span className="link-title">{source.title}</span>
+                        {source.summary && (
+                          <span className="link-summary">{source.summary}</span>
+                        )}
                       </a>
                     </li>
                   ))}

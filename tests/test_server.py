@@ -607,6 +607,44 @@ check("&nbsp; in a real snippet collapses to ordinary space",
 
 
 # ---------------------------------------------------------------------------
+section("Link titles and summaries in the transcript")
+
+# Every crawled page on the site ends its title the same way, so the suffix is
+# pure repetition down a list of results and eats the part that distinguishes
+# one page from another.
+check("a trailing site name after a hyphen is dropped",
+      retrieval.short_title(
+          "Options for Migrating your Contact Center from your Old PBX"
+          " - Enghouse Interactive")
+      == "Options for Migrating your Contact Center from your Old PBX")
+check("a trailing site name after a pipe is dropped",
+      retrieval.short_title("Contact Centre Platforms | Enghouse Interactive")
+      == "Contact Centre Platforms")
+check("the suffix is kept when too little would survive it",
+      retrieval.short_title("Blog - Enghouse Interactive")
+      == "Blog - Enghouse Interactive")
+check("hyphens inside a word are not treated as a suffix",
+      retrieval.short_title("State-of-the-art AI") == "State-of-the-art AI")
+check("a long title is trimmed to the display cap",
+      len(retrieval.short_title("Multi-Channel Contact Centre Software for "
+                                "Enterprise Organisations Worldwide - Enghouse"))
+      <= retrieval.LINK_TITLE_CHARS + 3)
+check("an empty title does not raise", retrieval.short_title("") == "")
+
+client = live[0].for_client()
+check("the browser payload carries a summary", bool(client["summary"]))
+check("the summary is the passage the index matched",
+      client["summary"].startswith("Many contact center operations"))
+check("the summary is capped for display",
+      len(client["summary"]) <= retrieval.LINK_SUMMARY_CHARS + 3, len(client["summary"]))
+check("the displayed title has the site suffix removed",
+      client["title"] == "Options for Migrating your Contact Center from your Old PBX",
+      client["title"])
+check("adding a summary did not put a URL in the model payload",
+      "summary" not in live[0].for_model() and "link" not in live[0].for_model())
+
+
+# ---------------------------------------------------------------------------
 section("Attaching data stores to an agent")
 
 _real_catalogue = retrieval.catalogue
