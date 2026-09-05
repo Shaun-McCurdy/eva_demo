@@ -10,8 +10,6 @@ to the Enghouse Vertex project.
 """
 
 BASE_GUARDRAILS = """\
-Anytime you transcribe the words Enj house, you should instead transcribe the
-word Enghouse.
 
 # Operating frame
 
