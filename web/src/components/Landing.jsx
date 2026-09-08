@@ -14,34 +14,8 @@ import { accentVars } from "../lib/theme";
    named integration -- the same restriction personas.py puts on EVA's own
    speech applies to the page selling it. */
 
-/* The portfolio -> product -> deployed-agent chain, stated once so a visitor
-   reading the measurement section already knows what "AI agent" refers to. */
-const NAMING = [
-  {
-    term: "EnghouseAI",
-    kind: "the portfolio",
-    def:
-      "The AI portfolio around the Enghouse contact centre platforms: virtual " +
-      "agents, insights, quality management, knowledge and workforce management.",
-  },
-  {
-    term: "Enghouse Virtual Agent",
-    kind: "the product",
-    def:
-      "EVA. The product inside that portfolio which holds the conversation and " +
-      "completes the task, across voice, chat and digital channels.",
-  },
-  {
-    term: "AI agent",
-    kind: "one deployment",
-    def:
-      "A single deployed EVA, working a queue alongside your human agents — and " +
-      "managed and measured the same way they are.",
-  },
-];
-
-/* The user's own KPI list. Deliberately no figures against them: the page can
-   say what is measured without inventing what it measured. */
+/* The KPI list, deliberately with no figures against it: the page can say what
+   is measured without inventing what it measured. */
 const KPIS = [
   {
     name: "Resolution rate",
@@ -58,10 +32,6 @@ const KPIS = [
   {
     name: "CSAT",
     desc: "Asked of the customer the same way, so the two are comparable.",
-  },
-  {
-    name: "Cost per resolution",
-    desc: "The figure that shows whether the automation paid for itself.",
   },
 ];
 
@@ -122,11 +92,6 @@ const FEATURES = [
     title: "One agent, every channel",
     body: "The same intent handling, knowledge and actions on voice, chat and digital — not a separate bot per channel.",
     icon: <path d="M4 6h16v9H4zM8 19h8M12 15v4M17 3l3 3-3 3" />,
-  },
-  {
-    title: "Nothing to install",
-    body: "This runs in the browser tab you already have open, over the same channels your contact centre uses.",
-    icon: <path d="M3 5h18v11H3zM8 20h8M12 16v4" />,
   },
 ];
 
@@ -262,33 +227,6 @@ export default function Landing() {
       <div className="band" />
 
       <JourneyExplainer />
-
-      <div className="band" />
-
-      {/* The vocabulary, before the section that leans on it. */}
-      <section className="shell naming" id="naming">
-        <div className="s-head">
-          <h2>Where the names fit</h2>
-          <p>
-            Three names, one line of descent — so it is always clear which one a
-            sentence is about.
-          </p>
-        </div>
-        <ol className="nm-list">
-          {NAMING.map((n, i) => (
-            <li className="nm-row" key={n.term} data-depth={i}>
-              <span className="nm-rail" aria-hidden="true" />
-              <div className="nm-body">
-                <h3>
-                  {n.term}
-                  <span className="nm-kind">{n.kind}</span>
-                </h3>
-                <p>{n.def}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </section>
 
       <div className="band" />
 
