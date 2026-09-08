@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { DEMO_URL } from "../lib/site";
 import { activeTheme, followsSystem, toggleTheme } from "../lib/theme";
 
 export function SiteHeader() {
@@ -28,15 +29,27 @@ export function SiteHeader() {
         <nav className="header-nav">
           <ThemeToggle />
           {pathname !== "/" && (
-            <Link className="btn btn-ghost btn-sm" to="/">
+            <Link className="btn btn-ghost btn-sm nav-optional" to="/">
               All agents
             </Link>
           )}
           {!inStudio && (
-            <Link className="btn btn-ghost btn-sm" to="/studio">
+            <Link className="btn btn-ghost btn-sm nav-studio" to="/studio">
               Studio
             </Link>
           )}
+          {/* The one control that follows the visitor everywhere. The header is
+              already sticky, so putting it here makes it persistent on every
+              route without a second floating bar competing with the live
+              conversation controls on the stage. */}
+          <a
+            className="btn btn-primary btn-sm nav-demo"
+            href={DEMO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Book a demo
+          </a>
         </nav>
       </div>
     </header>
@@ -99,10 +112,15 @@ export function SiteFooter() {
     <footer className="site-footer">
       <div className="shell">
         <span>
-          A demonstration of the Enghouse Virtual Agent. Scenarios and companies
-          shown are fictional.
+          A demonstration of EVA, the Enghouse Virtual Agent, part of EnghouseAI.
+          Scenarios and companies shown are fictional.
         </span>
-        <Link to="/studio">Sales engineer studio</Link>
+        <span className="footer-links">
+          <a href={DEMO_URL} target="_blank" rel="noopener noreferrer">
+            Book a demo
+          </a>
+          <Link to="/studio">Sales engineer studio</Link>
+        </span>
       </div>
     </footer>
   );

@@ -368,7 +368,7 @@ export default function AgentStage() {
       await camera.start();
       cameraRef.current = camera;
       setCameraOn(true);
-      addSystemLine("Camera on — EVA can see what you show her.");
+      addSystemLine("Camera on — EVA can see what you show.");
     } catch {
       addSystemLine("Could not start the camera.");
     }
@@ -433,7 +433,7 @@ export default function AgentStage() {
                 <>
                   <p className="line">{agent.blurb}</p>
                   <p className="hint" style={{ marginTop: "0.4rem" }}>
-                    Your microphone stays on while you talk. Interrupt her any time.
+                    Your microphone stays on while you talk. Interrupt it any time.
                   </p>
                 </>
               )}
@@ -457,10 +457,10 @@ export default function AgentStage() {
                           <i />
                           <i />
                         </span>
-                        Checking Enghouse sources — she'll answer in a moment.
+                        Checking Enghouse sources — answering in a moment.
                       </span>
                     ) : speaking ? (
-                      "Speak over her to interrupt."
+                      "Speak over EVA to interrupt."
                     ) : muted ? (
                       "Unmute to keep talking."
                     ) : (

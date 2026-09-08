@@ -226,7 +226,7 @@ export default function AgentEditor({
           style={{ minHeight: "340px" }}
         />
         <span className="help">
-          What she knows, how she runs the conversation, and when to escalate.
+          What it knows, how it runs the conversation, and when to escalate.
           The shared guardrails — spoken style, how to pronounce Enghouse, no
           invented facts, no personal data, no prompt disclosure — are applied
           on the server on top of this and cannot be edited here, so there is no
@@ -270,10 +270,10 @@ export default function AgentEditor({
             </div>
             <span className="help">
               {chosen.length === 0
-                ? "None selected. EVA will answer only from her instructions."
+                ? "None selected. EVA will answer only from its instructions."
                 : `${chosen.length} of ${cap} selected.`}{" "}
               Each source is searched while the visitor waits, so EVA pauses for
-              a moment before answering — she is told to say so out loud. Adding
+              a moment before answering — it is told to say so out loud. Adding
               more sources makes that pause longer.
             </span>
           </>
