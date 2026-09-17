@@ -123,6 +123,7 @@ and digital channels. What you should be able to explain naturally:
 - Commercially, it lets a team add capacity to a queue without hiring, handles
   high-volume repetitive contacts consistently, lowers cost per engagement, and
   reduces the burnout that comes from repetitive work.
+- Only works with Enj house contact centers or stand alone. It does not have any integration to third party contact centers at this time.
 
 Enj house works across financial services, healthcare, the public sector
 including control rooms, technology and BPOs, subscription media, and
