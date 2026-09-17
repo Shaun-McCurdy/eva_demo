@@ -51,10 +51,6 @@ def _resolve_project() -> tuple[str, str]:
 # Vertex's {region}-aiplatform.googleapis.com.
 API_HOST = "generativelanguage.googleapis.com"
 
-# Not every model accepts every level -- gemini-3.1-flash-live-preview takes all
-# four, others take a subset -- so this is the vocabulary, not a guarantee.
-THINKING_LEVELS = ("minimal", "low", "medium", "high")
-
 
 def _bool(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
@@ -83,27 +79,19 @@ class Settings:
     # no header form, which makes the connect URL itself a secret -- hence the
     # split between service_url (safe to log) and authenticated_url (not).
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-    MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-live-preview").strip()
+    MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-live").strip()
 
-    # How hard the model thinks before answering. Pinned rather than inherited:
-    # the default is the model's to change, and on a voice demo the difference
-    # between levels is audible as latency before every reply.
-    #
-    # Set empty to send nothing at all and fall back to whatever the model does
-    # on its own -- which is also the escape hatch if a future model rejects the
-    # field, since it can be cleared with an env var and no rebuild.
-    THINKING_LEVEL = os.environ.get("GEMINI_THINKING_LEVEL", "minimal").strip().lower()
+    # There is no thinking knob any more. gemini-3.8-live does not support
+    # thinking_level, and the migration guide is explicit that both it and
+    # thinking_config must be absent from the session setup -- so the setting
+    # that used to pin it is gone rather than merely defaulted off. A leftover
+    # GEMINI_THINKING_LEVEL in the environment is now simply ignored.
 
     # ---- Google Cloud --------------------------------------------------
     # Firestore is the only thing left that needs a project; the model calls do
     # not touch GCP. PROJECT_SOURCE records which mechanism supplied the id, so
     # a misconfigured deploy is one /healthz away from being obvious.
     PROJECT_ID, PROJECT_SOURCE = _resolve_project()
-
-    @property
-    def thinking_level(self) -> str:
-        """The configured level, or "" when thinking config should be omitted."""
-        return self.THINKING_LEVEL if self.THINKING_LEVEL in THINKING_LEVELS else ""
 
     @property
     def service_url(self) -> str:
@@ -144,9 +132,10 @@ class Settings:
     # retrieval.py for the full reasoning.
     VERTEX_DATA_STORES = os.environ.get("VERTEX_DATA_STORES", "").strip()
     SEARCH_LOCATION = os.environ.get("SEARCH_LOCATION", "global").strip() or "global"
-    # The Live model blocks synchronously on a tool call, so this timeout is
-    # how long a visitor can be left listening to silence before the agent is
-    # told the lookup failed and can say so.
+    # The search tool is declared BLOCKING (see live_proxy.SEARCH_TOOL), so the
+    # model waits on the lookup rather than talking over it. That makes this
+    # timeout the length of silence a visitor can be left with before the agent
+    # is told the lookup failed and can say so.
     SEARCH_TIMEOUT_SECONDS = _float("SEARCH_TIMEOUT_SECONDS", 6.0)
     SEARCH_MAX_RESULTS = _int("SEARCH_MAX_RESULTS", 4)
     # Per-passage cap. Four passages of 600 characters is roughly 2.5 kB into
@@ -233,12 +222,6 @@ class Settings:
                 "VERTEX_DATA_STORES is set but no Google Cloud project could be "
                 "determined, so every knowledge lookup will fail. Set "
                 "GOOGLE_CLOUD_PROJECT (Cloud Run does not set it for you)."
-            )
-        if self.THINKING_LEVEL and not self.thinking_level:
-            problems.append(
-                "GEMINI_THINKING_LEVEL=%r is not one of %s -- no thinking config "
-                "will be sent and the model's own default applies."
-                % (self.THINKING_LEVEL, ", ".join(THINKING_LEVELS))
             )
         if not self.GEMINI_API_KEY:
             problems.append(

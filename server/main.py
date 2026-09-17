@@ -27,7 +27,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from websockets.asyncio.client import connect as ws_connect
-from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, InvalidStatus
 
 import retrieval
 import security
@@ -78,6 +78,30 @@ def _close_info(exc: ConnectionClosed) -> tuple[int | None, str]:
     if rcvd is not None:
         return getattr(rcvd, "code", None), getattr(rcvd, "reason", "") or ""
     return getattr(exc, "code", None), getattr(exc, "reason", "") or ""
+
+
+def _rejection_info(exc: InvalidStatus) -> tuple[int, str]:
+    """Read the status and the *body* of a refused handshake.
+
+    websockets' own str() for this exception is only "server rejected
+    WebSocket connection: HTTP 409" -- the status and nothing else. Google puts
+    the actual reason in the response body, so logging the exception alone
+    turns every refusal into an unexplained number. That is precisely the state
+    a 409 leaves you in: visible in the usage dashboard, unexplained in the
+    logs.
+
+    409 specifically is ABORTED in Google's HTTP mapping -- a *concurrency*
+    conflict, not a bad request. It means this key already has as many Live
+    sessions open as its tier allows, so the proxy's own MAX_CONCURRENT_SESSIONS
+    is above the real ceiling and it is opening sessions Google then refuses.
+    """
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", 0) or 0
+    body = getattr(response, "body", b"") or b""
+    if isinstance(body, (bytes, bytearray)):
+        body = bytes(body).decode("utf-8", "replace")
+    return status, " ".join(str(body).split())[:600]
+
 
 registry = AgentRegistry(build_store())
 
@@ -651,6 +675,29 @@ async def live_session(ws: WebSocket):
                         raise exc
         except (ConnectionClosedOK, WebSocketDisconnect):
             pass
+        except InvalidStatus as exc:
+            # Google refused to *open* the socket, so this is not a bad setup
+            # frame -- none was sent yet. The body carries the reason; log it.
+            status, body = _rejection_info(exc)
+            log.warning(
+                "upstream refused handshake agent=%s http=%s body=%s",
+                slug,
+                status,
+                settings.redact(body) or "(empty)",
+            )
+            if status == 409:
+                # Concurrency conflict: the key is already at its Live session
+                # ceiling. Retrying in a moment genuinely works, so say that
+                # rather than implying the demo is broken.
+                message = (
+                    "The demo is at capacity right now. Please try again in a moment."
+                )
+            else:
+                message = f"The Live API refused the connection (HTTP {status})."
+            try:
+                await ws.send_text(json.dumps({"evaError": message}))
+            except Exception:  # noqa: BLE001
+                pass
         except ConnectionClosed as exc:
             # Google closes the socket with a code and a reason when it refuses
             # the setup frame -- an unsupported field, an unknown model, a dead

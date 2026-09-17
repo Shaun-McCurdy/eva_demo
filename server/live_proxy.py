@@ -56,6 +56,14 @@ SEARCH_TOOL = {
         },
         "required": ["query"],
     },
+    # Declared explicitly because gemini-3.8-live flipped the default: function
+    # calls are NON_BLOCKING unless a declaration says otherwise. Left to that
+    # default the model carries on speaking while the search is still in flight
+    # and answers from memory, which on a grounded sales demo means confidently
+    # inventing product detail -- the one failure this tool exists to prevent.
+    # BLOCKING keeps the behaviour the rest of this file assumes: the turn waits
+    # for the passages, and _run_tool_call must answer every call.
+    "behavior": "BLOCKING",
 }
 
 # Only these top-level keys are forwarded from browser to Google.
@@ -165,17 +173,11 @@ def build_setup_message(agent: dict[str, Any]) -> dict[str, Any]:
         # starting point; re-tune deliberately if the turn-taking feels wrong.
     }
 
-    # Nested inside generation_config rather than at the top of setup: the Live
-    # API reference enumerates BidiGenerateContentSetup's fields and thinking is
-    # not among them, while generation_config is a standard GenerationConfig and
-    # the unsupported-field list does not exclude thinking. No published example
-    # shows a raw Live setup frame carrying it, so if this placement is wrong the
-    # symptom is a 1007 close naming the field -- clear GEMINI_THINKING_LEVEL to
-    # drop the block without a rebuild.
-    if settings.thinking_level:
-        setup["generation_config"]["thinking_config"] = {
-            "thinking_level": settings.thinking_level
-        }
+    # No thinking_config here on purpose. It used to be sent inside
+    # generation_config, pinned to GEMINI_THINKING_LEVEL; gemini-3.8-live does
+    # not accept thinking_level at all and the migration guide says to omit both
+    # it and the surrounding thinking_config. A model that rejects a setup field
+    # closes the socket rather than failing cleanly, so this is load-bearing.
 
     # Only declared when the agent actually has a source attached, so an agent
     # with none produces byte-for-byte the setup frame it did before this
@@ -212,13 +214,15 @@ def tool_response_frame(function_calls: list[dict], payload: dict) -> dict[str, 
 def opening_turn() -> dict[str, Any]:
     """Nudge the agent to speak first, so the visitor is greeted on connect.
 
-    Sent as realtime_input rather than client_content. On
-    gemini-3.1-flash-live-preview client_content is documented as seeding
-    initial history only, and even that requires initial_history_in_client_content
-    in the session config -- which this app does not set. It currently works
-    anyway, but the greeting is the single most visible moment of the demo and
-    resting it on undocumented leniency in a preview model is not a bet worth
-    holding.
+    Sent as realtime_input rather than client_content. That began as a 3.1
+    constraint -- there client_content only seeded initial history -- and
+    gemini-3.8-live lifts it: client_content now works for the whole session,
+    given an explicit role. Kept as realtime_input anyway, because it is what
+    the demo has been greeting people with and a migration is the wrong moment
+    to re-litigate the single most visible second of it. Worth revisiting if the
+    greeting ever needs to land as real history rather than a nudge -- but note
+    that on 3.8 a client_content turn with turn_complete cuts off whatever the
+    model is currently saying.
     """
     return {"realtime_input": {"text": OPENING_TRIGGER}}
 

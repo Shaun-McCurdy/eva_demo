@@ -31,8 +31,8 @@ goal, instructions, voice and accent colour.
 ## Authentication is an API key, and it never leaves the server
 
 This app talks to the **Gemini Developer API**, not Vertex AI. It used to be the
-other way round; the move happened because `gemini-3.1-flash-live-preview` is
-served here and has no documented Vertex equivalent.
+other way round; the move happened because the Live model this demo runs on —
+now `gemini-3.8-live` — is served here and had no documented Vertex equivalent.
 
 ```
 wss://generativelanguage.googleapis.com/ws/...GenerativeService.BidiGenerateContent?key={GEMINI_API_KEY}

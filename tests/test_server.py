@@ -138,37 +138,31 @@ check("model URI uses the Developer API's short form",
 check("voice comes from the agent config",
       setup["generation_config"]["speech_config"]["voice_config"]
            ["prebuilt_voice_config"]["voice_name"] == "Charon")
-check("affective dialog is not sent (unsupported on 3.1 Flash Live)",
+check("affective dialog is not sent (removed from the API in 3.8)",
       "enable_affective_dialog" not in setup["generation_config"])
-check("proactivity is not sent (unsupported on 3.1 Flash Live)",
+check("proactivity is not sent (proactive audio is permanently on in 3.8)",
       "proactivity" not in setup)
-# Thinking level is pinned rather than inherited, and the placement inside
-# generation_config is inferred from the reference rather than copied from a
-# published example -- so assert the shape, and assert it can be turned off.
+
+# gemini-3.8-live rejects thinking_level and the migration guide says to drop
+# the surrounding thinking_config with it. Nothing pins it any more, so what is
+# left to defend is that neither field creeps back in: a setup frame carrying a
+# field the model refuses gets the socket closed, not a clean error.
 _gen = setup["generation_config"]
-check("thinking level is sent, not left to the model default",
-      _gen.get("thinking_config", {}).get("thinking_level") == live_proxy.settings.thinking_level)
-check("it sits inside generation_config, not at the top of setup",
+check("no thinking config at the top of the setup frame",
       "thinking_config" not in setup)
+check("and none inside generation_config either",
+      "thinking_config" not in _gen and "thinking_level" not in _gen)
 
-_saved = live_proxy.settings.THINKING_LEVEL
-live_proxy.settings.THINKING_LEVEL = ""
-check("an empty setting omits the block entirely",
-      "thinking_config" not in live_proxy.build_setup_message(banking)["setup"]["generation_config"])
-live_proxy.settings.THINKING_LEVEL = "enthusiastically"
-check("a bogus level is refused rather than forwarded",
-      "thinking_config" not in live_proxy.build_setup_message(banking)["setup"]["generation_config"])
-check("and validate() says why",
-      any("GEMINI_THINKING_LEVEL" in p for p in live_proxy.settings.validate()))
-live_proxy.settings.THINKING_LEVEL = "high"
-check("a valid level round-trips",
-      live_proxy.build_setup_message(banking)["setup"]["generation_config"]
-        ["thinking_config"]["thinking_level"] == "high")
-live_proxy.settings.THINKING_LEVEL = _saved
+# 3.8 made NON_BLOCKING the default for function calls. Every part of the
+# retrieval design assumes the model waits for passages rather than talking over
+# the lookup and answering from memory, so the declaration has to say so aloud.
+check("the search tool is declared BLOCKING, not left to the 3.8 default",
+      live_proxy.SEARCH_TOOL.get("behavior") == "BLOCKING",
+      repr(live_proxy.SEARCH_TOOL.get("behavior")))
 
-# gemini-3.1-flash-live-preview only accepts client_content for seeding initial
-# history, and then only with a config flag this app does not set. Both text
-# paths must therefore go out as realtime_input.
+# 3.1 accepted client_content only for seeding initial history. 3.8 accepts it
+# for the whole session, but a turn marked complete now cuts the model off
+# mid-sentence -- so both text paths still go out as realtime_input.
 _opening = live_proxy.opening_turn()
 check("the opening turn is realtime_input, not client_content",
       "realtime_input" in _opening and "client_content" not in _opening)

@@ -186,9 +186,13 @@ export class EvaLiveClient {
   }
 
   sendText(text) {
-    // realtime_input, not client_content. On gemini-3.1-flash-live-preview
-    // client_content only seeds initial history; anything typed after the first
-    // model turn has to arrive this way or it is simply not heard.
+    // realtime_input, not client_content. That was forced on 3.1, where
+    // client_content only seeded initial history and anything typed after the
+    // first model turn was simply not heard. gemini-3.8-live accepts
+    // client_content throughout the session, but realtime_input still works and
+    // does not interrupt the model mid-sentence the way a completed
+    // client_content turn now does -- which is what you want for typed input
+    // arriving while she is talking.
     this.#send({ realtime_input: { text } });
   }
 

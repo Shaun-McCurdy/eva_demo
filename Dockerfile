@@ -33,8 +33,7 @@ COPY --from=web /build/dist ./web/dist
 # region. Cloud Run still does not inject it the way App Engine does, and
 # settings.py's metadata-server fallback is a safety net, not configuration.
 ARG GOOGLE_CLOUD_PROJECT=virtual-agent-demos
-ARG GEMINI_MODEL=gemini-3.1-flash-live-preview
-ARG GEMINI_THINKING_LEVEL=medium
+ARG GEMINI_MODEL=gemini-3.8-live
 
 # The knowledge sources a studio user may point an agent at. Format, one record
 # per `;`:
@@ -54,7 +53,6 @@ ARG VERTEX_DATA_STORES="eva-website | EVA Website Data | engine:eva-website-data
 
 ENV GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT} \
     GEMINI_MODEL=${GEMINI_MODEL} \
-    GEMINI_THINKING_LEVEL=${GEMINI_THINKING_LEVEL} \
     VERTEX_DATA_STORES="${VERTEX_DATA_STORES}"
 
 # Cloud Run injects PORT; settings.py reads it.

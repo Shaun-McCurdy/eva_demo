@@ -303,12 +303,28 @@ data, so they cannot be broken from the studio. Add an entry, redeploy, and it
 appears on the landing page. Variants created in the studio are deliberately
 *unlisted* — reachable by their URL, never advertised on `/`.
 
-**Changing model.** `GEMINI_MODEL` is an env var. Check the model's own page for
-what it supports before switching: `gemini-3.1-flash-live-preview` accepts
-neither affective dialog nor proactive audio, and the setup frame in
-`live_proxy.py` was trimmed to match. A model that rejects a field in that frame
-closes the socket rather than failing cleanly, so the close code and reason are
-logged.
+**Changing model.** `GEMINI_MODEL` is an env var, defaulted in the Dockerfile.
+Check the model's own page for what it supports before switching, because a
+model that rejects a field in the setup frame closes the socket rather than
+failing cleanly — the close code and reason are logged, and that log line is
+usually the fastest way to find out which field it objected to.
+
+The frame in `live_proxy.py` is trimmed to what `gemini-3.8-live` takes:
+
+- No `thinking_config` / `thinking_level`. 3.8 does not accept it, and the
+  `GEMINI_THINKING_LEVEL` env var that used to pin it is gone; a leftover one
+  in the environment is ignored rather than honoured.
+- No affective dialog — removed from the API altogether — and no `proactivity`
+  block, since proactive audio is permanently on and passing
+  `proactive_audio: false` is an error.
+- `search_enghouse_knowledge` is declared `behavior: BLOCKING`. 3.8 made
+  `NON_BLOCKING` the default, and without the explicit declaration the agent
+  talks straight over its own knowledge lookup and answers from memory. If a
+  demo starts confidently inventing product detail, check this first.
+
+Audio is the only response modality 3.8 supports, which is what this app already
+asks for; the transcripts on screen come from `output_audio_transcription`, not
+from a text modality.
 
 **Adding a knowledge source.** Edit `ARG VERTEX_DATA_STORES` in the Dockerfile
 and redeploy, then confirm `dataStores` in `/api/healthz` went up. The engine has to
